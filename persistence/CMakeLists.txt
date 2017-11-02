@@ -17,7 +17,6 @@ vespa_define_module(
     src/vespa/persistence
     src/vespa/persistence/conformancetest
     src/vespa/persistence/dummyimpl
-    src/vespa/persistence/proxy
     src/vespa/persistence/spi
 
     TEST_DEPENDS
@@ -26,9 +25,5 @@ vespa_define_module(
     TESTS
     src/tests
     src/tests/dummyimpl
-    src/tests/proxy
     src/tests/spi
 )
-
-install_fat_java_artifact(persistence)
-install_config_definition(src/main/resources/configdefinitions/persistence-rpc.def persistence.persistence-rpc.def)

@@ -26,9 +26,12 @@ public class ConfigServerDB {
     private final ConfigserverConfig configserverConfig;
 
     public ConfigServerDB(ConfigserverConfig configserverConfig) {
+        if (configserverConfig.configDefinitionsDir().equals(configserverConfig.configServerDBDir()))
+            throw new IllegalArgumentException("configDefinitionsDir and configServerDBDir cannot be equal ('" +
+                    configserverConfig.configDefinitionsDir() + "')");
         this.configserverConfig = configserverConfig;
         this.serverDB = new File(Defaults.getDefaults().underVespaHome(configserverConfig.configServerDBDir()));
-        create();
+        createDirectory(serverdefs());
         try {
             initialize(configserverConfig.configModelPluginDir());
         } catch (IllegalArgumentException e) {
@@ -38,25 +41,18 @@ public class ConfigServerDB {
         }
     }
 
-    public static ConfigServerDB createTestConfigServerDb(String dir) {
-        return new ConfigServerDB(new ConfigserverConfig(new ConfigserverConfig.Builder().configServerDBDir(dir)));
+    public static ConfigServerDB createTestConfigServerDb(String dbDir, String definitionsDir) {
+        return new ConfigServerDB(new ConfigserverConfig(new ConfigserverConfig.Builder()
+                                                                 .configServerDBDir(dbDir)
+                                                                 .configDefinitionsDir(definitionsDir)));
     }
 
-    public File classes() { return new File(serverDB, "classes"); }
-    public File vespaapps() { return new File(serverDB, "vespaapps"); }
+    // The config definitions shipped with Vespa
+    public File classes() { return new File(Defaults.getDefaults().underVespaHome(configserverConfig.configDefinitionsDir()));}
+
     public File serverdefs() { return new File(serverDB, "serverdefs"); }
 
-
-    /**
-     * Creates all the config server db's dirs that are global.
-     */
-    public void create() {
-        cr(classes());
-        cr(vespaapps());
-        cr(serverdefs());
-    }
-
-    public static void cr(File d) {
+    public static void createDirectory(File d) {
         if (d.exists()) {
             if (!d.isDirectory()) {
                 throw new IllegalArgumentException(d.getAbsolutePath() + " exists, but isn't a directory.");
@@ -70,7 +66,7 @@ public class ConfigServerDB {
 
     private void initialize(List<String> pluginDirectories) throws IOException {
         IOUtils.recursiveDeleteDir(serverdefs());
-        IOUtils.copyDirectory(classes(), serverdefs());
+        IOUtils.copyDirectory(classes(), serverdefs(), 1);
         ConfigDefinitionDir configDefinitionDir = new ConfigDefinitionDir(serverdefs());
         ArrayList<Bundle> bundles = new ArrayList<>();
         for (String pluginDirectory : pluginDirectories) {

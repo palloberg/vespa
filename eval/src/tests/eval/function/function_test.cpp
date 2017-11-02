@@ -345,15 +345,6 @@ TEST("require that If children can be accessed") {
     EXPECT_EQUAL(3.0, root.get_child(2).get_const_value());
 }
 
-TEST("require that Let children can be accessed") {
-    Function f = Function::parse("let(a,1,2)");
-    const Node &root = f.root();
-    EXPECT_TRUE(!root.is_leaf());
-    ASSERT_EQUAL(2u, root.num_children());
-    EXPECT_EQUAL(1.0, root.get_child(0).get_const_value());
-    EXPECT_EQUAL(2.0, root.get_child(1).get_const_value());
-}
-
 TEST("require that Operator children can be accessed") {
     Function f = Function::parse("1+2");
     const Node &root = f.root();
@@ -395,7 +386,6 @@ TEST("require that children can be detached") {
     EXPECT_EQUAL(1u, detach_from_root("-a"));
     EXPECT_EQUAL(1u, detach_from_root("!a"));
     EXPECT_EQUAL(3u, detach_from_root("if(1,2,3)"));
-    EXPECT_EQUAL(2u, detach_from_root("let(a,1,a)"));
     EXPECT_EQUAL(5u, detach_from_root("[1,2,3,4,5]"));
     EXPECT_EQUAL(2u, detach_from_root("a+b"));
     EXPECT_EQUAL(1u, detach_from_root("isNan(a)"));
@@ -493,14 +483,6 @@ TEST("require that inverted parameter is not param") {
     EXPECT_TRUE(!Function::parse("-x").root().is_param());
 }
 
-TEST("require that let references are not params") {
-    Function fun = Function::parse("let(foo,bar,foo)");
-    auto let = as<Let>(fun.root());
-    ASSERT_TRUE(let);
-    EXPECT_TRUE(let->value().is_param()); 
-    EXPECT_TRUE(!let->expr().is_param());
-}
-
 TEST("require that number is const, but not param") {
     EXPECT_TRUE(Function::parse("123").root().is_const());
     EXPECT_TRUE(!Function::parse("123").root().is_param());
@@ -547,10 +529,6 @@ TEST("require that calls are cost if all parameters are const") {
     EXPECT_TRUE(!Function::parse("max(1,y)").root().is_const());
     EXPECT_TRUE(!Function::parse("max(x,2)").root().is_const());
     EXPECT_TRUE(Function::parse("max(1,2)").root().is_const());
-}
-
-TEST("require that const let is not const") {
-    EXPECT_TRUE(!Function::parse("let(a,1,a)").root().is_const());
 }
 
 //-----------------------------------------------------------------------------
@@ -693,18 +671,6 @@ TEST("require that unknown function that is valid parameter works as expected wi
     EXPECT_EQUAL("[z(x)]...[unknown symbol: 'z(x)']...[+y]", Function::parse(params, "z(x)+y", MySymbolExtractor({'(', ')'})).dump());
 }
 
-TEST("require that custom symbol extractor is only invoked for tokens that must be parameters") {
-    MySymbolExtractor my_extractor;
-    EXPECT_EQUAL(0u, Function::parse("max(1,2)", my_extractor).num_params());
-    EXPECT_EQUAL(0u, Function::parse("max(let(a,1,a),2)", my_extractor).num_params());
-    ASSERT_EQUAL(1u, Function::parse("max(let(a,1,b),2)", my_extractor).num_params());
-    EXPECT_EQUAL(1u, my_extractor.invoke_count);
-    EXPECT_EQUAL("b", Function::parse("max(let(a,1,b),2)", my_extractor).param_name(0));
-    EXPECT_EQUAL(2u, my_extractor.invoke_count);
-    EXPECT_EQUAL("[bogus]...[invalid operator: '(']...[(1,2)]", Function::parse("bogus(1,2)", my_extractor).dump());
-    EXPECT_EQUAL(3u, my_extractor.invoke_count);
-}
-
 //-----------------------------------------------------------------------------
 
 void verify_error(const vespalib::string &expr, const vespalib::string &expected_error) {
@@ -750,15 +716,9 @@ TEST("require that missing value gives parse error") {
 
 //-----------------------------------------------------------------------------
 
-TEST("require that tensor sum can be parsed") {
-    EXPECT_EQUAL("sum(a)", Function::parse("sum(a)").dump());
-    EXPECT_EQUAL("sum(a)", Function::parse(" sum ( a ) ").dump());
-    EXPECT_EQUAL("sum(a,dim)", Function::parse("sum(a,dim)").dump());
-    EXPECT_EQUAL("sum(a,dim)", Function::parse(" sum ( a , dim ) ").dump());
-}
-
 TEST("require that tensor operations can be nested") {
-    EXPECT_EQUAL("sum(sum(sum(a)),dim)", Function::parse("sum(sum(sum(a)),dim)").dump());
+    EXPECT_EQUAL("reduce(reduce(reduce(a,sum),sum),sum,dim)",
+                 Function::parse("reduce(reduce(reduce(a,sum),sum),sum,dim)").dump());
 }
 
 //-----------------------------------------------------------------------------
@@ -785,27 +745,19 @@ TEST("require that outer parameters are hidden within a lambda") {
     verify_error("map(x,f(a)(y))", "[map(x,f(a)(y]...[unknown symbol: 'y']...[))]");
 }
 
-TEST("require that outer let bindings are hidden within a lambda") {
-    verify_error("let(b,x,map(b,f(a)(b)))", "[let(b,x,map(b,f(a)(b]...[unknown symbol: 'b']...[)))]");
-}
-
 //-----------------------------------------------------------------------------
 
 TEST("require that tensor reduce can be parsed") {
     EXPECT_EQUAL("reduce(x,sum,a,b)", Function::parse({"x"}, "reduce(x,sum,a,b)").dump());
     EXPECT_EQUAL("reduce(x,sum,a,b,c)", Function::parse({"x"}, "reduce(x,sum,a,b,c)").dump());
     EXPECT_EQUAL("reduce(x,sum,a,b,c)", Function::parse({"x"}, " reduce ( x , sum , a , b , c ) ").dump());
+    EXPECT_EQUAL("reduce(x,sum)", Function::parse({"x"}, "reduce(x,sum)").dump());
     EXPECT_EQUAL("reduce(x,avg)", Function::parse({"x"}, "reduce(x,avg)").dump());
     EXPECT_EQUAL("reduce(x,avg)", Function::parse({"x"}, "reduce( x , avg )").dump());
     EXPECT_EQUAL("reduce(x,count)", Function::parse({"x"}, "reduce(x,count)").dump());
     EXPECT_EQUAL("reduce(x,prod)", Function::parse({"x"}, "reduce(x,prod)").dump());
     EXPECT_EQUAL("reduce(x,min)", Function::parse({"x"}, "reduce(x,min)").dump());
     EXPECT_EQUAL("reduce(x,max)", Function::parse({"x"}, "reduce(x,max)").dump());
-}
-
-TEST("require that tensor reduce is mapped to tensor sum for all dimensions/single dimension") {
-    EXPECT_EQUAL("sum(x)", Function::parse({"x"}, "reduce(x,sum)").dump());
-    EXPECT_EQUAL("sum(x,d)", Function::parse({"x"}, "reduce(x,sum,d)").dump());
 }
 
 TEST("require that tensor reduce with unknown aggregator fails") {

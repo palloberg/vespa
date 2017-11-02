@@ -14,76 +14,17 @@
 #include <vespa/eval/tensor/default_tensor_engine.h>
 #include <vespa/eval/eval/value_type.h>
 #include <vespa/eval/eval/value.h>
+#include <vespa/eval/eval/test/test_io.h>
 #include <unistd.h>
 
 #include "generate.h"
 
 using namespace vespalib;
 using namespace vespalib::eval;
+using namespace vespalib::eval::test;
 using namespace vespalib::slime::convenience;
 using slime::JsonFormat;
 using tensor::DefaultTensorEngine;
-
-constexpr size_t CHUNK_SIZE = 16384;
-constexpr bool not_compact = false;
-
-//-----------------------------------------------------------------------------
-
-size_t num_tests = 0;
-std::map<vespalib::string,size_t> result_map;
-
-vespalib::string result_stats() {
-    vespalib::string stats;
-    for (const auto &entry: result_map) {        
-        if (!stats.empty()) {
-            stats += ", ";
-        }
-        stats += make_string("%s: %zu", entry.first.c_str(), entry.second);
-    }
-    return stats;
-}
-
-//-----------------------------------------------------------------------------
-
-class StdIn : public Input {
-private:
-    bool _eof = false;
-    SimpleBuffer _input;
-public:
-    ~StdIn() {}
-    Memory obtain() override {
-        if ((_input.get().size == 0) && !_eof) {
-            WritableMemory buf = _input.reserve(CHUNK_SIZE);
-            ssize_t res = read(STDIN_FILENO, buf.data, buf.size);
-            _eof = (res == 0);
-            assert(res >= 0); // fail on stdio read errors
-            _input.commit(res);
-        }
-        return _input.obtain();
-    }
-    Input &evict(size_t bytes) override {
-        _input.evict(bytes);
-        return *this;
-    }
-};
-
-class StdOut : public Output {
-private:
-    SimpleBuffer _output;
-public:
-    ~StdOut() {}
-    WritableMemory reserve(size_t bytes) override {
-        return _output.reserve(bytes);
-    }
-    Output &commit(size_t bytes) override {
-        _output.commit(bytes);
-        Memory buf = _output.obtain();
-        ssize_t res = write(STDOUT_FILENO, buf.data, buf.size);
-        assert(res == ssize_t(buf.size)); // fail on stdout write failures
-        _output.evict(res);
-        return *this;
-    }
-};
 
 //-----------------------------------------------------------------------------
 
@@ -162,18 +103,22 @@ TensorSpec extract_value(const Inspector &inspector) {
 
 //-----------------------------------------------------------------------------
 
-TensorSpec eval_expr(const Inspector &test, const TensorEngine &engine) {
+std::vector<ValueType> get_types(const std::vector<Value::CREF> &param_values) {
+    std::vector<ValueType> param_types;
+    for (size_t i = 0; i < param_values.size(); ++i) {
+        param_types.emplace_back(param_values[i].get().type());
+    }
+    return param_types;
+}
+
+TensorSpec eval_expr(const Inspector &test, const TensorEngine &engine, bool typed) {
     Stash stash;
     Function fun = Function::parse(test["expression"].asString().make_string());
     std::vector<Value::CREF> param_values;
-    std::vector<ValueType> param_types;
     for (size_t i = 0; i < fun.num_params(); ++i) {
         param_values.emplace_back(to_value(extract_value(test["inputs"][fun.param_name(i)]), engine, stash));
     }
-    for (size_t i = 0; i < fun.num_params(); ++i) {
-        param_types.emplace_back(param_values[i].get().type());
-    }
-    NodeTypes types(fun, param_types);
+    NodeTypes types = typed ? NodeTypes(fun, get_types(param_values)) : NodeTypes();
     InterpretedFunction ifun(engine, fun, types);
     InterpretedFunction::Context ctx(ifun);
     InterpretedFunction::SimpleObjectParams params(param_values);
@@ -193,52 +138,40 @@ std::vector<vespalib::string> extract_fields(const Inspector &object) {
     return std::move(extractor.result);
 };
 
-void dump_test(const Inspector &test) {
-    fprintf(stderr, "expression: '%s'\n", test["expression"].asString().make_string().c_str());
-    for (const auto &input: extract_fields(test["inputs"])) {
-        auto value = extract_value(test["inputs"][input]);
-        fprintf(stderr, "input '%s': %s\n", input.c_str(), value.to_string().c_str());
-    }
-}
-
 //-----------------------------------------------------------------------------
 
 class MyTestBuilder : public TestBuilder {
 private:
-    Output &_out;
-    void build_test(Cursor &test, const vespalib::string &expression,
-                    const std::map<vespalib::string,TensorSpec> &input_map)
+    TestWriter _writer;
+    void make_test(const vespalib::string &expression,
+                   const std::map<vespalib::string,TensorSpec> &input_map,
+                   const TensorSpec *expect = nullptr)
     {
+        Cursor &test = _writer.create();
         test.setString("expression", expression);
         Cursor &inputs = test.setObject("inputs");
         for (const auto &input: input_map) {
             insert_value(inputs, input.first, input.second);
         }
+        if (expect != nullptr) {
+            insert_value(test.setObject("result"), "expect", *expect);
+        } else {
+            insert_value(test.setObject("result"), "expect",
+                         eval_expr(test, SimpleTensorEngine::ref(), false));
+        }
     }
 public:
-    MyTestBuilder(Output &out) : _out(out) {}
-    void add(const vespalib::string &expression,
-             const std::map<vespalib::string,TensorSpec> &inputs) override
-    {
-        Slime slime;
-        build_test(slime.setObject(), expression, inputs);
-        insert_value(slime.get().setObject("result"), "expect",
-                     eval_expr(slime.get(), SimpleTensorEngine::ref()));
-        JsonFormat::encode(slime, _out, not_compact);
-        ++num_tests;
-    }
+    MyTestBuilder(Output &out) : _writer(out) {}
     void add(const vespalib::string &expression,
              const std::map<vespalib::string,TensorSpec> &inputs,
              const TensorSpec &expect) override
     {
-        Slime slime;
-        build_test(slime.setObject(), expression, inputs);
-        insert_value(slime.get().setObject("result"), "expect", expect);
-        if (!EXPECT_EQUAL(eval_expr(slime.get(), SimpleTensorEngine::ref()), expect)) {
-            dump_test(slime.get());
-        }
-        JsonFormat::encode(slime, _out, not_compact);
-        ++num_tests;
+        make_test(expression, inputs, &expect);
+    }
+    void add(const vespalib::string &expression,
+             const std::map<vespalib::string,TensorSpec> &inputs) override
+    {
+        make_test(expression, inputs);
     }
 };
 
@@ -250,34 +183,55 @@ void generate(Output &out) {
 //-----------------------------------------------------------------------------
 
 void evaluate(Input &in, Output &out) {
-    while (in.obtain().size > 0) {
-        Slime slime;
-        if (JsonFormat::decode(in, slime)) {
-            ++num_tests;
-            insert_value(slime.get()["result"], "prod_cpp",
-                         eval_expr(slime.get(), DefaultTensorEngine::ref()));
-            JsonFormat::encode(slime, out, not_compact);
-        }
-    }
+    auto handle_test = [&out](Slime &slime)
+                       {
+                           insert_value(slime["result"], "cpp_prod",
+                                   eval_expr(slime.get(), DefaultTensorEngine::ref(), true));
+                           insert_value(slime["result"], "cpp_prod_untyped",
+                                   eval_expr(slime.get(), DefaultTensorEngine::ref(), false));
+                           insert_value(slime["result"], "cpp_ref_typed",
+                                   eval_expr(slime.get(), SimpleTensorEngine::ref(), true));
+                           write_compact(slime, out);
+                       };
+    auto handle_summary = [&out](Slime &slime)
+                          {
+                              write_compact(slime, out);
+                          };
+    for_each_test(in, handle_test, handle_summary);
 }
 
 //-----------------------------------------------------------------------------
 
-void verify(Input &in) {
-    while (in.obtain().size > 0) {
-        Slime slime;
-        if (JsonFormat::decode(in, slime)) {
-            ++num_tests;
-            TensorSpec reference_result = eval_expr(slime.get(), SimpleTensorEngine::ref());
-            for (const auto &result: extract_fields(slime.get()["result"])) {
-                ++result_map[result];
-                TEST_STATE(make_string("verifying result: '%s'", result.c_str()).c_str());
-                if (!EXPECT_EQUAL(reference_result, extract_value(slime.get()["result"][result]))) {
-                    dump_test(slime.get());
-                }
-            }
-        }
+void dump_test(const Inspector &test) {
+    fprintf(stderr, "expression: '%s'\n", test["expression"].asString().make_string().c_str());
+    for (const auto &input: extract_fields(test["inputs"])) {
+        auto value = extract_value(test["inputs"][input]);
+        fprintf(stderr, "input '%s': %s\n", input.c_str(), value.to_string().c_str());
     }
+}
+
+void verify(Input &in, Output &out) {
+    std::map<vespalib::string,size_t> result_map;
+    auto handle_test = [&out,&result_map](Slime &slime)
+                       {
+                           TensorSpec reference_result = eval_expr(slime.get(), SimpleTensorEngine::ref(), false);
+                           for (const auto &result: extract_fields(slime["result"])) {
+                               ++result_map[result];
+                               TEST_STATE(make_string("verifying result: '%s'", result.c_str()).c_str());
+                               if (!EXPECT_EQUAL(reference_result, extract_value(slime["result"][result]))) {
+                                   dump_test(slime.get());
+                               }
+                           }
+                       };
+    auto handle_summary = [&out,&result_map](Slime &slime)
+                          {
+                              Cursor &stats = slime.get().setObject("stats");
+                              for (const auto &entry: result_map) {
+                                  stats.setLong(entry.first, entry.second);
+                              }
+                              JsonFormat::encode(slime, out, false);
+                          };
+    for_each_test(in, handle_test, handle_summary);
 }
 
 //-----------------------------------------------------------------------------
@@ -304,13 +258,10 @@ int main(int argc, char **argv) {
     TEST_MASTER.init(make_string("vespa-tensor-conformance-%s", mode.c_str()).c_str());
     if (mode == "generate") {
         generate(std_out);
-        fprintf(stderr, "generated %zu test cases\n", num_tests);
     } else if (mode == "evaluate") {
         evaluate(std_in, std_out);
-        fprintf(stderr, "evaluated %zu test cases\n", num_tests);
     } else if (mode == "verify") {
-        verify(std_in);
-        fprintf(stderr, "verified %zu test cases (%s)\n", num_tests, result_stats().c_str());
+        verify(std_in, std_out);
     } else {
         TEST_ERROR(make_string("unknown mode: %s", mode.c_str()).c_str());
     }

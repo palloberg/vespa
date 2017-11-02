@@ -9,6 +9,7 @@ import com.yahoo.vespa.applicationmodel.ApplicationInstanceReference;
 import com.yahoo.vespa.applicationmodel.ClusterId;
 import com.yahoo.vespa.applicationmodel.HostName;
 import com.yahoo.vespa.applicationmodel.ServiceCluster;
+import com.yahoo.vespa.applicationmodel.ServiceInstance;
 import com.yahoo.vespa.orchestrator.config.OrchestratorConfig;
 import com.yahoo.vespa.orchestrator.controller.ClusterControllerClient;
 import com.yahoo.vespa.orchestrator.controller.ClusterControllerClientFactory;
@@ -27,7 +28,6 @@ import com.yahoo.vespa.orchestrator.status.ApplicationInstanceStatus;
 import com.yahoo.vespa.orchestrator.status.HostStatus;
 import com.yahoo.vespa.orchestrator.status.MutableStatusRegistry;
 import com.yahoo.vespa.orchestrator.status.StatusService;
-import com.yahoo.vespa.service.monitor.ServiceMonitorStatus;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -79,6 +79,20 @@ public class OrchestratorImpl implements Orchestrator {
     }
 
     @Override
+    public Host getHost(HostName hostName) throws HostNameNotFoundException {
+        ApplicationInstance applicationInstance = getApplicationInstance(hostName);
+        List<ServiceInstance> serviceInstances = applicationInstance
+                .serviceClusters().stream()
+                .flatMap(cluster -> cluster.serviceInstances().stream())
+                .filter(serviceInstance -> hostName.equals(serviceInstance.hostName()))
+                .collect(Collectors.toList());
+
+        HostStatus hostStatus = getNodeStatus(applicationInstance.reference(), hostName);
+
+        return new Host(hostName, hostStatus, applicationInstance.reference(), serviceInstances);
+    }
+
+    @Override
     public HostStatus getNodeStatus(HostName hostName) throws HostNameNotFoundException {
         return getNodeStatus(getApplicationInstance(hostName).reference(), hostName);
     }
@@ -106,7 +120,7 @@ public class OrchestratorImpl implements Orchestrator {
         */
         sleep(serviceMonitorConvergenceLatencySeconds, TimeUnit.SECONDS);
 
-        ApplicationInstance<ServiceMonitorStatus> appInstance = getApplicationInstance(hostName);
+        ApplicationInstance appInstance = getApplicationInstance(hostName);
 
         try (MutableStatusRegistry statusRegistry = statusService.lockApplicationInstance_forCurrentThreadOnly(appInstance.reference())) {
             final HostStatus currentHostState = statusRegistry.getHostStatus(hostName);
@@ -124,14 +138,14 @@ public class OrchestratorImpl implements Orchestrator {
 
     @Override
     public void suspend(HostName hostName) throws HostStateChangeDeniedException, HostNameNotFoundException {
-        ApplicationInstance<ServiceMonitorStatus> appInstance = getApplicationInstance(hostName);
+        ApplicationInstance appInstance = getApplicationInstance(hostName);
         NodeGroup nodeGroup = new NodeGroup(appInstance, hostName);
         suspendGroup(nodeGroup);
     }
 
     @Override
     public void acquirePermissionToRemove(HostName hostName) throws OrchestrationException {
-        ApplicationInstance<ServiceMonitorStatus> appInstance = getApplicationInstance(hostName);
+        ApplicationInstance appInstance = getApplicationInstance(hostName);
         NodeGroup nodeGroup = new NodeGroup(appInstance, hostName);
 
         try (MutableStatusRegistry statusRegistry = statusService.lockApplicationInstance_forCurrentThreadOnly(appInstance.reference())) {
@@ -242,7 +256,7 @@ public class OrchestratorImpl implements Orchestrator {
     private List<NodeGroup> nodeGroupsOrderedForSuspend(List<HostName> hostNames) throws HostNameNotFoundException {
         Map<ApplicationInstanceReference, NodeGroup> nodeGroupMap = new HashMap<>(hostNames.size());
         for (HostName hostName : hostNames) {
-            ApplicationInstance<ServiceMonitorStatus> application = getApplicationInstance(hostName);
+            ApplicationInstance application = getApplicationInstance(hostName);
 
             NodeGroup nodeGroup = nodeGroupMap.get(application.reference());
             if (nodeGroup == null) {
@@ -281,7 +295,7 @@ public class OrchestratorImpl implements Orchestrator {
 
             // Set content clusters for this application in maintenance on suspend
             if (status == ApplicationInstanceStatus.ALLOWED_TO_BE_DOWN) {
-                ApplicationInstance<ServiceMonitorStatus> application = getApplicationInstance(appRef);
+                ApplicationInstance application = getApplicationInstance(appRef);
 
                 // Mark it allowed to be down before we manipulate the clustercontroller
                 OrchestratorUtil.getHostsUsedByApplicationInstance(application)
@@ -296,7 +310,7 @@ public class OrchestratorImpl implements Orchestrator {
         }
     }
 
-    private void setClusterStateInController(ApplicationInstance<ServiceMonitorStatus> application,
+    private void setClusterStateInController(ApplicationInstance application,
                                              ClusterControllerNodeState state)
             throws ApplicationStateChangeDeniedException, ApplicationIdNotFoundException {
         // Get all content clusters for this application
@@ -326,12 +340,12 @@ public class OrchestratorImpl implements Orchestrator {
         }
     }
 
-    private ApplicationInstance<ServiceMonitorStatus> getApplicationInstance(HostName hostName) throws HostNameNotFoundException{
+    private ApplicationInstance getApplicationInstance(HostName hostName) throws HostNameNotFoundException{
         return instanceLookupService.findInstanceByHost(hostName).orElseThrow(
                 () -> new HostNameNotFoundException(hostName));
     }
 
-    private ApplicationInstance<ServiceMonitorStatus> getApplicationInstance(ApplicationInstanceReference appRef) throws ApplicationIdNotFoundException {
+    private ApplicationInstance getApplicationInstance(ApplicationInstanceReference appRef) throws ApplicationIdNotFoundException {
         return instanceLookupService.findInstanceById(appRef).orElseThrow(ApplicationIdNotFoundException::new);
     }
 

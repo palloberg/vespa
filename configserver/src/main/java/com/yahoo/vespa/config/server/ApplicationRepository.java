@@ -35,11 +35,9 @@ import com.yahoo.vespa.config.server.session.RemoteSession;
 import com.yahoo.vespa.config.server.session.Session;
 import com.yahoo.vespa.config.server.session.SessionFactory;
 import com.yahoo.vespa.config.server.session.SilentDeployLogger;
-import com.yahoo.vespa.config.server.tenant.ActivateLock;
 import com.yahoo.vespa.config.server.tenant.Rotations;
 import com.yahoo.vespa.config.server.tenant.Tenant;
 import com.yahoo.vespa.config.server.tenant.Tenants;
-import com.yahoo.vespa.curator.Curator;
 
 import java.io.File;
 import java.net.URI;
@@ -65,7 +63,6 @@ public class ApplicationRepository implements com.yahoo.config.provision.Deploye
 
     private final Tenants tenants;
     private final Optional<Provisioner> hostProvisioner;
-    private final Curator curator;
     private final LogServerLogGrabber logServerLogGrabber;
     private final ApplicationConvergenceChecker convergeChecker;
     private final HttpProxy httpProxy;
@@ -77,28 +74,25 @@ public class ApplicationRepository implements com.yahoo.config.provision.Deploye
     @Inject
     public ApplicationRepository(Tenants tenants,
                                  HostProvisionerProvider hostProvisionerProvider,
-                                 Curator curator,
                                  LogServerLogGrabber logServerLogGrabber,
                                  ApplicationConvergenceChecker applicationConvergenceChecker,
                                  HttpProxy httpProxy, 
                                  ConfigserverConfig configserverConfig) {
-        this(tenants, hostProvisionerProvider.getHostProvisioner(), curator, logServerLogGrabber,
+        this(tenants, hostProvisionerProvider.getHostProvisioner(), logServerLogGrabber,
              applicationConvergenceChecker, httpProxy, configserverConfig, Clock.systemUTC());
     }
 
     // For testing
     public ApplicationRepository(Tenants tenants,
                                  Provisioner hostProvisioner,
-                                 Curator curator,
                                  Clock clock) {
-        this(tenants, Optional.of(hostProvisioner), curator, new LogServerLogGrabber(),
+        this(tenants, Optional.of(hostProvisioner), new LogServerLogGrabber(),
              new ApplicationConvergenceChecker(), new HttpProxy(new SimpleHttpFetcher()),
              new ConfigserverConfig(new ConfigserverConfig.Builder()), clock);
     }
 
     private ApplicationRepository(Tenants tenants,
                                   Optional<Provisioner> hostProvisioner,
-                                  Curator curator,
                                   LogServerLogGrabber logServerLogGrabber,
                                   ApplicationConvergenceChecker applicationConvergenceChecker,
                                   HttpProxy httpProxy,
@@ -106,7 +100,6 @@ public class ApplicationRepository implements com.yahoo.config.provision.Deploye
                                   Clock clock) {
         this.tenants = tenants;
         this.hostProvisioner = hostProvisioner;
-        this.curator = curator;
         this.logServerLogGrabber = logServerLogGrabber;
         this.convergeChecker = applicationConvergenceChecker;
         this.httpProxy = httpProxy;
@@ -127,7 +120,7 @@ public class ApplicationRepository implements com.yahoo.config.provision.Deploye
     @Override
     public Optional<com.yahoo.config.provision.Deployment> deployFromLocalActive(ApplicationId application, Duration timeout) {
         Tenant tenant = tenants.getTenant(application.tenant());
-        LocalSession activeSession = tenant.getLocalSessionRepo().getActiveSession(application);
+        LocalSession activeSession = getActiveSession(tenant, application);
         if (activeSession == null) return Optional.empty();
         TimeoutBudget timeoutBudget = new TimeoutBudget(clock, timeout);
         LocalSession newSession = tenant.getSessionFactory().createSessionFromExisting(activeSession, logger, timeoutBudget);
@@ -137,22 +130,21 @@ public class ApplicationRepository implements com.yahoo.config.provision.Deploye
         Version version = environment.isManuallyDeployed() ? Vtag.currentVersion : newSession.getVespaVersion();
                 
         return Optional.of(Deployment.unprepared(newSession,
-                                                 tenant.getLocalSessionRepo(),
-                                                 tenant.getPath(),
+                                                 this,
                                                  hostProvisioner,
-                                                 new ActivateLock(curator, tenant.getPath()),
+                                                 tenant,
                                                  timeout,
                                                  clock,
                                                  false, // don't validate as this is already deployed
                                                  version));
     }
 
-    public Deployment deployFromPreparedSession(LocalSession session, ActivateLock lock, LocalSessionRepo localSessionRepo, Duration timeout) {
+    private Deployment deployFromPreparedSession(LocalSession session, Tenant tenant, Duration timeout) {
         return Deployment.prepared(session,
-                                   localSessionRepo,
+                                   this,
                                    hostProvisioner,
-                                   lock,
-                                   timeout, 
+                                   tenant,
+                                   timeout,
                                    clock);
     }
 
@@ -274,13 +266,7 @@ public class ApplicationRepository implements com.yahoo.config.provision.Deploye
                                   boolean ignoreLockFailure,
                                   boolean ignoreSessionStaleFailure) {
         LocalSession localSession = getLocalSession(tenant, sessionId);
-        LocalSessionRepo localSessionRepo = tenant.getLocalSessionRepo();
-        ActivateLock activateLock = tenant.getActivateLock();
-        // TODO: Get rid of the activateLock and localSessionRepo arguments in deployFromPreparedSession
-        Deployment deployment = deployFromPreparedSession(localSession,
-                                                          activateLock,
-                                                          localSessionRepo,
-                                                          timeoutBudget.timeLeft());
+        Deployment deployment = deployFromPreparedSession(localSession, tenant, timeoutBudget.timeLeft());
         deployment.setIgnoreLockFailure(ignoreLockFailure);
         deployment.setIgnoreSessionStaleFailure(ignoreSessionStaleFailure);
         deployment.activate();
@@ -385,4 +371,22 @@ public class ApplicationRepository implements com.yahoo.config.provision.Deploye
         TenantApplications applicationRepo = tenant.getApplicationRepo();
         return getLocalSession(tenant, applicationRepo.getSessionIdForApplication(applicationId));
     }
+
+    /**
+     * Gets the active Session for the given application id.
+     *
+     * @return the active session, or null if there is no active session for the given application id.
+     */
+    public LocalSession getActiveSession(ApplicationId applicationId) {
+        return getActiveSession(tenants.getTenant(applicationId.tenant()), applicationId);
+    }
+
+    private LocalSession getActiveSession(Tenant tenant, ApplicationId applicationId) {
+        TenantApplications applicationRepo = tenant.getApplicationRepo();
+        if (applicationRepo.listApplications().contains(applicationId)) {
+            return tenant.getLocalSessionRepo().getSession(applicationRepo.getSessionIdForApplication(applicationId));
+        }
+        return null;
+    }
+
 }

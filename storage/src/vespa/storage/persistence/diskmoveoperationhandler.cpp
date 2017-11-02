@@ -22,7 +22,7 @@ DiskMoveOperationHandler::handleBucketDiskMove(BucketDiskMoveCommand& cmd,
                                        _env._metrics.movedBuckets,
                                        _env._component.getClock()));
 
-    document::BucketId bucket(cmd.getBucketId());
+    document::Bucket bucket(cmd.getBucket());
     uint32_t targetDisk(cmd.getDstDisk());
     uint32_t deviceIndex(_env._partition);
 
@@ -56,7 +56,7 @@ DiskMoveOperationHandler::handleBucketDiskMove(BucketDiskMoveCommand& cmd,
         return tracker;
     }
 
-    api::BucketInfo bInfo = _env.getBucketInfo(to, targetDisk);
+    api::BucketInfo bInfo = _env.getBucketInfo(bucket, targetDisk);
     uint32_t sourceFileSize = bInfo.getUsedFileSize();
 
     {
@@ -65,8 +65,8 @@ DiskMoveOperationHandler::handleBucketDiskMove(BucketDiskMoveCommand& cmd,
         // delete bucket command. If so, it'll be deleted when delete bucket
         // is executed. moving queue should move delete command to correct disk
         StorBucketDatabase::WrappedEntry entry(
-                _env.getBucketDatabase().get(
-                    bucket, "FileStorThread::onBucketDiskMove",
+                _env.getBucketDatabase(bucket.getBucketSpace()).get(
+                    bucket.getBucketId(), "FileStorThread::onBucketDiskMove",
                     StorBucketDatabase::LOCK_IF_NONEXISTING_AND_NOT_CREATING));
 
         // Move queued operations in bucket to new thread. Hold bucket lock

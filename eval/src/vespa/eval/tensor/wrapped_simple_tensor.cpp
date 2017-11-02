@@ -129,14 +129,14 @@ WrappedSimpleTensor::sum(const vespalib::string &) const
 }
 
 Tensor::UP
-WrappedSimpleTensor::apply(const eval::BinaryOperation &, const Tensor &) const
+WrappedSimpleTensor::join(join_fun_t, const Tensor &) const
 {
     abort();
     return Tensor::UP();
 }
 
 Tensor::UP
-WrappedSimpleTensor::reduce(const eval::BinaryOperation &, const std::vector<vespalib::string> &) const
+WrappedSimpleTensor::reduce(join_fun_t, const std::vector<vespalib::string> &) const
 {
     abort();
     return Tensor::UP();

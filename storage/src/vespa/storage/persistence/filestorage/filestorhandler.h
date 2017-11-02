@@ -14,7 +14,7 @@
 #pragma once
 
 #include "mergestatus.h"
-#include <vespa/document/bucket/bucketid.h>
+#include <vespa/document/bucket/bucket.h>
 #include <ostream>
 #include <vespa/storage/storageutil/resumeguard.h>
 #include <vespa/storage/common/messagesender.h>
@@ -43,12 +43,12 @@ class AbortBucketOperationsCommand;
 class FileStorHandler : public MessageSender {
 public:
     struct RemapInfo {
-        document::BucketId bid;
+        document::Bucket bucket;
         uint16_t diskIndex;
         bool foundInQueue;
 
-        RemapInfo(const document::BucketId& bucketId, uint16_t diskIdx)
-            : bid(bucketId),
+        RemapInfo(const document::Bucket &bucket_, uint16_t diskIdx)
+            : bucket(bucket_),
               diskIndex(diskIdx),
               foundInQueue(false)
             {}
@@ -58,7 +58,7 @@ public:
     public:
         typedef std::shared_ptr<BucketLockInterface> SP;
 
-        virtual const document::BucketId& getBucketId() const = 0;
+        virtual const document::Bucket &getBucket() const = 0;
 
         virtual ~BucketLockInterface() {};
     };
@@ -156,7 +156,7 @@ public:
      *
      *
      */
-    BucketLockInterface::SP lock(const document::BucketId&, uint16_t disk);
+    BucketLockInterface::SP lock(const document::Bucket&, uint16_t disk);
 
     /**
      * Called by FileStorThread::onBucketDiskMove() after moving file, in case
@@ -168,7 +168,7 @@ public:
      * requeststatus - Ignore
      * readbucketinfo/bucketdiskmove/internalbucketjoin - Fail and log errors
      */
-    void remapQueueAfterDiskMove(const document::BucketId& bucket,
+    void remapQueueAfterDiskMove(const document::Bucket &bucket,
                                  uint16_t sourceDisk, uint16_t targetDisk);
 
     /**
@@ -219,13 +219,13 @@ public:
      * Fail all operations towards a single bucket currently queued to the
      * given thread with the given error code.
      */
-    void failOperations(const document::BucketId&, uint16_t fromDisk,
+    void failOperations(const document::Bucket&, uint16_t fromDisk,
                         const api::ReturnCode&);
 
     /**
      * Add a new merge state to the registry.
      */
-    void addMergeStatus(const document::BucketId&, MergeStatus::SP);
+    void addMergeStatus(const document::Bucket&, MergeStatus::SP);
 
     /**
      * Returns the reference to the current merge status for the given bucket.
@@ -234,7 +234,7 @@ public:
      *
      * @param bucket The bucket to start merging.
      */
-    MergeStatus& editMergeStatus(const document::BucketId& bucket);
+    MergeStatus& editMergeStatus(const document::Bucket& bucket);
 
     /**
      * Returns true if the bucket is currently being merged on this node.
@@ -242,7 +242,7 @@ public:
      * @param bucket The bucket to check merge status for
      * @return Returns true if the bucket is being merged.
      */
-    bool isMerging(const document::BucketId& bucket) const;
+    bool isMerging(const document::Bucket& bucket) const;
 
     /**
      * @return Returns the number of active merges on the node.
@@ -250,8 +250,8 @@ public:
     uint32_t getNumActiveMerges() const;
 
     /** Removes the merge status for the given bucket. */
-    void clearMergeStatus(const document::BucketId&);
-    void clearMergeStatus(const document::BucketId&, const api::ReturnCode&);
+    void clearMergeStatus(const document::Bucket&);
+    void clearMergeStatus(const document::Bucket&, const api::ReturnCode&);
 
     void abortQueuedOperations(const AbortBucketOperationsCommand& cmd);
 

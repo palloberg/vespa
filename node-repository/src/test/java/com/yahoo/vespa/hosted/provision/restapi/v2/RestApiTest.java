@@ -273,7 +273,7 @@ public class RestApiTest {
                 "{\"message\":\"Moved host12.yahoo.com to failed\"}");
         assertResponse(new Request("http://localhost:8080/nodes/v2/state/dirty/host12.yahoo.com",
                 new byte[0], Request.Method.PUT), 400,
-                "{\"error-code\":\"BAD_REQUEST\",\"message\":\"Could not deallocate host12.yahoo.com: It has a hardware failure\"}");
+                "{\"error-code\":\"BAD_REQUEST\",\"message\":\"Could not deallocate host12.yahoo.com: It has a hardware failure/spec divergence\"}");
     }
 
     @Test
@@ -495,6 +495,13 @@ public class RestApiTest {
                                    Utf8.toBytes("{\"hardwareDivergence\": null}"),
                                    Request.Method.PATCH),
                        "{\"message\":\"Updated host6.yahoo.com\"}");
+        assertFile(new Request("http://localhost:8080/nodes/v2/node/host6.yahoo.com"), "node6.json");
+
+        // Clear on quoted "null" report
+        assertResponse(new Request("http://localhost:8080/nodes/v2/node/host6.yahoo.com",
+                        Utf8.toBytes("{\"hardwareDivergence\": \"null\"}"),
+                        Request.Method.PATCH),
+                "{\"message\":\"Updated host6.yahoo.com\"}");
         assertFile(new Request("http://localhost:8080/nodes/v2/node/host6.yahoo.com"), "node6.json");
     }
 

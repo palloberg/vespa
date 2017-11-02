@@ -93,7 +93,7 @@ public class SessionActiveHandlerTest extends SessionHandlerTest {
         applicationRepo = new MemoryTenantApplications();
         curator = new MockCurator();
         configCurator = ConfigCurator.create(curator);
-        localRepo = new LocalSessionRepo(applicationRepo, Clock.systemUTC());
+        localRepo = new LocalSessionRepo(Clock.systemUTC());
         pathPrefix = "/application/v2/tenant/" + tenant + "/session/";
         pathProvider = new PathProvider(Path.createRoot());
         hostProvisioner = new MockProvisioner();
@@ -231,7 +231,9 @@ public class SessionActiveHandlerTest extends SessionHandlerTest {
         writeApplicationId(zkc, deployData.getApplicationName());
         TenantFileSystemDirs tenantFileSystemDirs = TenantFileSystemDirs.createTestDirs(tenant);
         ApplicationPackage app = FilesApplicationPackage.fromFileWithDeployData(testApp, deployData);
-        localRepo.addSession(new LocalSession(tenant, sessionId, new SessionTest.MockSessionPreparer(), new SessionContext(app, zkc, new File(tenantFileSystemDirs.path(), String.valueOf(sessionId)), applicationRepo, new HostRegistry<>(), new SuperModelGenerationCounter(curator))));
+        localRepo.addSession(new LocalSession(tenant, sessionId, new SessionTest.MockSessionPreparer(),
+                new SessionContext(app, zkc, new File(tenantFileSystemDirs.sessionsPath(), String.valueOf(sessionId)),
+                        applicationRepo, new HostRegistry<>(), new SuperModelGenerationCounter(curator))));
         return localRepo;
     }
 
@@ -379,7 +381,6 @@ public class SessionActiveHandlerTest extends SessionHandlerTest {
                 Zone.defaultZone(),
                 new ApplicationRepository(testTenantBuilder.createTenants(),
                                           hostProvisioner,
-                                          curator,
                                           Clock.systemUTC()));
     }
 

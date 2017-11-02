@@ -3,10 +3,13 @@ package com.yahoo.vespa.hosted.controller.maintenance;
 
 import com.yahoo.component.Version;
 import com.yahoo.config.provision.Environment;
+import com.yahoo.config.provision.RegionName;
+import com.yahoo.config.provision.Zone;
 import com.yahoo.test.ManualClock;
 import com.yahoo.vespa.hosted.controller.Application;
 import com.yahoo.vespa.hosted.controller.ControllerTester;
 import com.yahoo.vespa.hosted.controller.application.ApplicationPackage;
+import com.yahoo.vespa.hosted.controller.application.Deployment;
 import com.yahoo.vespa.hosted.controller.application.DeploymentJobs;
 import com.yahoo.vespa.hosted.controller.deployment.ApplicationPackageBuilder;
 import com.yahoo.vespa.hosted.controller.deployment.DeploymentTester;
@@ -39,12 +42,12 @@ public class UpgraderTest {
         assertEquals("No applications: Nothing to do", 0, tester.buildSystem().jobs().size());
 
         // Setup applications
-        Application canary0 = tester.createAndDeploy("canary0", 0, "canary");
-        Application canary1 = tester.createAndDeploy("canary1", 1, "canary");
-        Application default0 = tester.createAndDeploy("default0", 2, "default");
-        Application default1 = tester.createAndDeploy("default1", 3, "default");
-        Application default2 = tester.createAndDeploy("default2", 4, "default");
-        Application conservative0 = tester.createAndDeploy("conservative0", 5, "conservative");
+        Application canary0 = tester.createAndDeploy("canary0", 1, "canary");
+        Application canary1 = tester.createAndDeploy("canary1", 2, "canary");
+        Application default0 = tester.createAndDeploy("default0", 3, "default");
+        Application default1 = tester.createAndDeploy("default1", 4, "default");
+        Application default2 = tester.createAndDeploy("default2", 5, "default");
+        Application conservative0 = tester.createAndDeploy("conservative0", 6, "conservative");
 
         tester.upgrader().maintain();
         assertEquals("All already on the right version: Nothing to do", 0, tester.buildSystem().jobs().size());
@@ -134,9 +137,6 @@ public class UpgraderTest {
         // --- Failing application is repaired by changing the application, causing confidence to move above 'high' threshold
         // Deploy application change
         tester.deployCompletely("default0");
-        // Complete upgrade
-        tester.upgrader().maintain();
-        tester.completeUpgrade(default0, version, "default");
 
         tester.updateVersionStatus(version);
         assertEquals(VespaVersion.Confidence.high, tester.controller().versionStatus().systemVersion().get().confidence());
@@ -163,18 +163,18 @@ public class UpgraderTest {
         assertEquals("No applications: Nothing to do", 0, tester.buildSystem().jobs().size());
 
         // Setup applications
-        Application canary0 = tester.createAndDeploy("canary0", 0, "canary");
-        Application canary1 = tester.createAndDeploy("canary1", 1, "canary");
-        Application default0 = tester.createAndDeploy("default0",  2, "default");
-        Application default1 = tester.createAndDeploy("default1",  3, "default");
-        Application default2 = tester.createAndDeploy("default2",  4, "default");
-        Application default3 = tester.createAndDeploy("default3",  5, "default");
-        Application default4 = tester.createAndDeploy("default4",  6, "default");
-        Application default5 = tester.createAndDeploy("default5",  7, "default");
-        Application default6 = tester.createAndDeploy("default6",  8, "default");
-        Application default7 = tester.createAndDeploy("default7",  9, "default");
-        Application default8 = tester.createAndDeploy("default8", 10, "default");
-        Application default9 = tester.createAndDeploy("default9", 11, "default");
+        Application canary0  = tester.createAndDeploy("canary0",  1, "canary");
+        Application canary1  = tester.createAndDeploy("canary1",  2, "canary");
+        Application default0 = tester.createAndDeploy("default0", 3, "default");
+        Application default1 = tester.createAndDeploy("default1", 4, "default");
+        Application default2 = tester.createAndDeploy("default2", 5, "default");
+        Application default3 = tester.createAndDeploy("default3", 6, "default");
+        Application default4 = tester.createAndDeploy("default4", 7, "default");
+        Application default5 = tester.createAndDeploy("default5", 8, "default");
+        Application default6 = tester.createAndDeploy("default6", 9, "default");
+        Application default7 = tester.createAndDeploy("default7", 10, "default");
+        Application default8 = tester.createAndDeploy("default8", 11, "default");
+        Application default9 = tester.createAndDeploy("default9", 12, "default");
 
         tester.upgrader().maintain();
         assertEquals("All already on the right version: Nothing to do", 0, tester.buildSystem().jobs().size());
@@ -275,13 +275,13 @@ public class UpgraderTest {
         tester.updateVersionStatus(version);
 
         // Setup applications
-        Application canary0 = tester.createAndDeploy("canary0", 0, "canary");
-        Application canary1 = tester.createAndDeploy("canary1", 1, "canary");
-        Application default0 = tester.createAndDeploy("default0", 2, "default");
-        Application default1 = tester.createAndDeploy("default1", 3, "default");
-        Application default2 = tester.createAndDeploy("default2", 4, "default");
-        Application default3 = tester.createAndDeploy("default3", 5, "default");
-        Application default4 = tester.createAndDeploy("default4", 6, "default");
+        Application canary0 = tester.createAndDeploy("canary0", 1, "canary");
+        Application canary1 = tester.createAndDeploy("canary1", 2, "canary");
+        Application default0 = tester.createAndDeploy("default0", 3, "default");
+        Application default1 = tester.createAndDeploy("default1", 4, "default");
+        Application default2 = tester.createAndDeploy("default2", 5, "default");
+        Application default3 = tester.createAndDeploy("default3", 6, "default");
+        Application default4 = tester.createAndDeploy("default4", 7, "default");
 
         // New version is released
         version = Version.fromString("5.1");
@@ -321,13 +321,13 @@ public class UpgraderTest {
         tester.updateVersionStatus(version);
 
         // Setup applications
-        Application canary0 = tester.createAndDeploy("canary0", 0, "canary");
-        Application canary1 = tester.createAndDeploy("canary1", 1, "canary");
-        Application default0 = tester.createAndDeploy("default0", 2, "default");
-        Application default1 = tester.createAndDeploy("default1", 3, "default");
-        Application default2 = tester.createAndDeploy("default2", 4, "default");
-        Application default3 = tester.createAndDeploy("default3", 5, "default");
-        Application default4 = tester.createAndDeploy("default4", 5, "default");
+        Application canary0 = tester.createAndDeploy("canary0", 1, "canary");
+        Application canary1 = tester.createAndDeploy("canary1", 2, "canary");
+        Application default0 = tester.createAndDeploy("default0", 3, "default");
+        Application default1 = tester.createAndDeploy("default1", 4, "default");
+        Application default2 = tester.createAndDeploy("default2", 5, "default");
+        Application default3 = tester.createAndDeploy("default3", 6, "default");
+        Application default4 = tester.createAndDeploy("default4", 7, "default");
 
         // New version is released
         version = Version.fromString("5.1");
@@ -364,16 +364,16 @@ public class UpgraderTest {
     }
 
     @Test
-    public void testConsidersBlockUpgradeWindow() {
-        ManualClock clock = new ManualClock(Instant.parse("2017-09-26T18:00:00.00Z")); // A tuesday
+    public void testBlockVersionChange() {
+        ManualClock clock = new ManualClock(Instant.parse("2017-09-26T18:00:00.00Z")); // Tuesday, 18:00
         DeploymentTester tester = new DeploymentTester(new ControllerTester(clock));
         Version version = Version.fromString("5.0");
         tester.updateVersionStatus(version);
 
         ApplicationPackage applicationPackage = new ApplicationPackageBuilder()
                 .upgradePolicy("canary")
-                // Block upgrades on tuesday in hours 18 and 19
-                .blockUpgrade("tue", "18-19", "UTC")
+                // Block upgrades on Tuesday in hours 18 and 19
+                .blockChange(false, true, "tue", "18-19", "UTC")
                 .region("us-west-1")
                 .build();
 
@@ -397,6 +397,258 @@ public class UpgraderTest {
         tester.upgrader().maintain();
         assertFalse("Job is scheduled", tester.buildSystem().jobs().isEmpty());
         tester.completeUpgrade(app, version, "canary");
+        assertTrue("All jobs consumed", tester.buildSystem().jobs().isEmpty());
+    }
+
+    @Test
+    public void testBlockVersionChangeHalfwayThough() {
+        ManualClock clock = new ManualClock(Instant.parse("2017-09-26T17:00:00.00Z")); // Tuesday, 17:00
+        DeploymentTester tester = new DeploymentTester(new ControllerTester(clock));
+        BlockedChangeDeployer blockedChangeDeployer = new BlockedChangeDeployer(tester.controller(),
+                                                                                Duration.ofHours(1),
+                                                                                new JobControl(tester.controllerTester().curator()));
+
+        Version version = Version.fromString("5.0");
+        tester.updateVersionStatus(version);
+
+        ApplicationPackage applicationPackage = new ApplicationPackageBuilder()
+                .upgradePolicy("canary")
+                // Block upgrades on Tuesday in hours 18 and 19
+                .blockChange(false, true, "tue", "18-19", "UTC")
+                .region("us-west-1")
+                .region("us-central-1")
+                .region("us-east-3")
+                .build();
+
+        Application app = tester.createAndDeploy("app1", 1, applicationPackage);
+
+        // New version is released
+        version = Version.fromString("5.1");
+        tester.updateVersionStatus(version);
+
+        // Application upgrade starts
+        tester.upgrader().maintain();
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.systemTest);
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.stagingTest);
+        clock.advance(Duration.ofHours(1)); // Entering block window after prod job is triggered
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.productionUsWest1);
+        assertTrue(tester.buildSystem().jobs().isEmpty()); // Next job not triggered due to being in the block window
+
+        // One hour passes, time is 19:00, still no upgrade
+        tester.clock().advance(Duration.ofHours(1));
+        blockedChangeDeployer.maintain();
+        assertTrue("No jobs scheduled", tester.buildSystem().jobs().isEmpty());
+
+        // Another hour pass, time is 20:00 and application upgrades
+        tester.clock().advance(Duration.ofHours(1));
+        blockedChangeDeployer.maintain();
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.productionUsCentral1);
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.productionUsEast3);
+        assertTrue("All jobs consumed", tester.buildSystem().jobs().isEmpty());
+    }
+
+    /**
+     * Tests the scenario where a release is deployed to 2 of 3 production zones, then blocked,
+     * followed by timeout of the upgrade and a new release.
+     * In this case, the blocked production zone should not progress with upgrading to the previous version,
+     * and should not upgrade to the new version until the other production zones have it
+     * (expected behavior; both requirements are debatable).
+     */
+    @Test
+    public void testBlockVersionChangeHalfwayThoughThenNewVersion() {
+        ManualClock clock = new ManualClock(Instant.parse("2017-09-29T16:00:00.00Z")); // Friday, 16:00
+        DeploymentTester tester = new DeploymentTester(new ControllerTester(clock));
+        BlockedChangeDeployer blockedChangeDeployer = new BlockedChangeDeployer(tester.controller(),
+                                                                                Duration.ofHours(1),
+                                                                                new JobControl(tester.controllerTester().curator()));
+
+        Version version = Version.fromString("5.0");
+        tester.updateVersionStatus(version);
+
+        ApplicationPackage applicationPackage = new ApplicationPackageBuilder()
+                .upgradePolicy("canary")
+                // Block upgrades on weekends and ouside working hours
+                .blockChange(false, true, "mon-fri", "00-09,17-23", "UTC")
+                .blockChange(false, true, "sat-sun", "00-23", "UTC")
+                .region("us-west-1")
+                .region("us-central-1")
+                .region("us-east-3")
+                .build();
+
+        Application app = tester.createAndDeploy("app1", 1, applicationPackage);
+
+        // New version is released
+        version = Version.fromString("5.1");
+        tester.updateVersionStatus(version);
+
+        // Application upgrade starts
+        tester.upgrader().maintain();
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.systemTest);
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.stagingTest);
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.productionUsWest1);
+        clock.advance(Duration.ofHours(1)); // Entering block window after prod job is triggered
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.productionUsCentral1);
+        assertTrue(tester.buildSystem().jobs().isEmpty()); // Next job not triggered due to being in the block window
+
+        // A day passes and we get a new version
+        tester.clock().advance(Duration.ofDays(1));
+        version = Version.fromString("5.2");
+        tester.updateVersionStatus(version);
+        tester.upgrader().maintain();
+        blockedChangeDeployer.maintain();
+        assertTrue("Nothing is scheduled", tester.buildSystem().jobs().isEmpty());
+
+        // Monday morning: We are not blocked
+        tester.clock().advance(Duration.ofDays(1)); // Sunday, 17:00
+        tester.clock().advance(Duration.ofHours(17)); // Monday, 10:00
+        tester.upgrader().maintain();
+        blockedChangeDeployer.maintain();
+        // We proceed with the new version in the expected order, not starting with the previously blocked version:
+        // Test jobs are run with the new version, but not production as we are in the block window
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.systemTest);
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.stagingTest);
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.productionUsWest1);
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.productionUsCentral1);
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.productionUsEast3);
+        assertTrue("All jobs consumed", tester.buildSystem().jobs().isEmpty());
+        
+        // App is completely upgraded to the latest version
+        for (Deployment deployment : tester.applications().require(app.id()).deployments().values())
+            assertEquals(version, deployment.version());
+    }
+
+    @Test
+    public void testReschedulesUpgradeAfterTimeout() {
+        DeploymentTester tester = new DeploymentTester();
+        Version version = Version.fromString("5.0");
+        tester.updateVersionStatus(version);
+
+        ApplicationPackage applicationPackage = new ApplicationPackageBuilder()
+                .environment(Environment.prod)
+                .region("us-west-1")
+                .build();
+
+        // Setup applications
+        Application canary0 = tester.createAndDeploy("canary0", 1, "canary");
+        Application canary1 = tester.createAndDeploy("canary1", 2, "canary");
+        Application default0 = tester.createAndDeploy("default0", 3, "default");
+        Application default1 = tester.createAndDeploy("default1", 4, "default");
+        Application default2 = tester.createAndDeploy("default2", 5, "default");
+        Application default3 = tester.createAndDeploy("default3", 6, "default");
+        Application default4 = tester.createAndDeploy("default4", 7, "default");
+        
+        assertEquals(version, default0.deployedVersion().get());
+
+        // New version is released
+        version = Version.fromString("5.1");
+        tester.updateVersionStatus(version);
+        assertEquals(version, tester.controller().versionStatus().systemVersion().get().versionNumber());
+        tester.upgrader().maintain();
+
+        // Canaries upgrade and raise confidence
+        tester.completeUpgrade(canary0, version, "canary");
+        tester.completeUpgrade(canary1, version, "canary");
+        tester.updateVersionStatus(version);
+        assertEquals(VespaVersion.Confidence.normal, tester.controller().versionStatus().systemVersion().get().confidence());
+
+        // Applications with default policy start upgrading
+        tester.clock().advance(Duration.ofMinutes(1));
+        tester.upgrader().maintain();
+        assertEquals("Upgrade scheduled for remaining apps", 5, tester.buildSystem().jobs().size());
+
+        // 4/5 applications fail, confidence is lowered and upgrade is cancelled
+        tester.completeUpgradeWithError(default0, version, "default", DeploymentJobs.JobType.systemTest);
+        tester.completeUpgradeWithError(default1, version, "default", DeploymentJobs.JobType.systemTest);
+        tester.completeUpgradeWithError(default2, version, "default", DeploymentJobs.JobType.systemTest);
+        tester.completeUpgradeWithError(default3, version, "default", DeploymentJobs.JobType.systemTest);
+        tester.updateVersionStatus(version);
+        assertEquals(VespaVersion.Confidence.broken, tester.controller().versionStatus().systemVersion().get().confidence());
+        tester.upgrader().maintain();
+
+        // 5th app never reports back and has a dead job, but no ongoing change
+        Application deadLocked = tester.applications().require(default4.id());
+        assertTrue("Jobs in progress", deadLocked.deploymentJobs().isRunning(tester.controller().applications().deploymentTrigger().jobTimeoutLimit()));
+        assertFalse("No change present", deadLocked.deploying().isPresent());
+
+        // 4/5 applications are repaired and confidence is restored
+        tester.deployCompletely(default0, applicationPackage);
+        tester.deployCompletely(default1, applicationPackage);
+        tester.deployCompletely(default2, applicationPackage);
+        tester.deployCompletely(default3, applicationPackage);
+
+        tester.updateVersionStatus(version);
+        assertEquals(VespaVersion.Confidence.normal, tester.controller().versionStatus().systemVersion().get().confidence());
+
+        tester.upgrader().maintain();
+        assertEquals("Upgrade scheduled for previously failing apps", 4, tester.buildSystem().jobs().size());
+        tester.completeUpgrade(default0, version, "default");
+        tester.completeUpgrade(default1, version, "default");
+        tester.completeUpgrade(default2, version, "default");
+        tester.completeUpgrade(default3, version, "default");
+
+        assertEquals(version, tester.application(default0.id()).deployedVersion().get());
+        assertEquals(version, tester.application(default1.id()).deployedVersion().get());
+        assertEquals(version, tester.application(default2.id()).deployedVersion().get());
+        assertEquals(version, tester.application(default3.id()).deployedVersion().get());
+
+        // Over 12 hours pass and upgrade is rescheduled for 5th app
+        assertEquals(0, tester.buildSystem().jobs().size());
+        tester.clock().advance(Duration.ofHours(12).plus(Duration.ofSeconds(1)));
+        tester.upgrader().maintain();
+        assertEquals(1, tester.buildSystem().jobs().size());
+        assertEquals("Upgrade is rescheduled", DeploymentJobs.JobType.systemTest.id(),
+                     tester.buildSystem().jobs().get(0).jobName());
+        tester.deployCompletely(default4, applicationPackage);
+        assertEquals(version, tester.application(default4.id()).deployedVersion().get());
+    }
+
+    @Test
+    public void testThrottlesUpgrades() {
+        DeploymentTester tester = new DeploymentTester();
+        Version version = Version.fromString("5.0");
+        tester.updateVersionStatus(version);
+
+        // Setup our own upgrader as we need to control the interval
+        Upgrader upgrader = new Upgrader(tester.controller(), Duration.ofMinutes(10),
+                                         new JobControl(tester.controllerTester().curator()),
+                                         tester.controllerTester().curator());
+        upgrader.setUpgradesPerMinute(0.2);
+
+        // Setup applications
+        Application canary0 = tester.createAndDeploy("canary0", 1, "canary");
+        Application canary1 = tester.createAndDeploy("canary1", 2, "canary");
+        Application default0 = tester.createAndDeploy("default0", 3, "default");
+        Application default1 = tester.createAndDeploy("default1", 4, "default");
+        Application default2 = tester.createAndDeploy("default2", 5, "default");
+        Application default3 = tester.createAndDeploy("default3", 6, "default");
+
+        // Dev deployment which should be ignored
+        Application dev0 = tester.createApplication("dev0", "tenant1", 7, 1L);
+        tester.controllerTester().deploy(dev0, new Zone(Environment.dev, RegionName.from("dev-region")));
+
+        // New version is released and canaries upgrade
+        version = Version.fromString("5.1");
+        tester.updateVersionStatus(version);
+        assertEquals(version, tester.controller().versionStatus().systemVersion().get().versionNumber());
+        upgrader.maintain();
+
+        assertEquals(2, tester.buildSystem().jobs().size());
+        tester.completeUpgrade(canary0, version, "canary");
+        tester.completeUpgrade(canary1, version, "canary");
+        tester.updateVersionStatus(version);
+
+        // Next run upgrades a subset
+        upgrader.maintain();
+        assertEquals(2, tester.buildSystem().jobs().size());
+        tester.completeUpgrade(default0, version, "default");
+        tester.completeUpgrade(default2, version, "default");
+
+        // Remaining applications upgraded
+        upgrader.maintain();
+        assertEquals(2, tester.buildSystem().jobs().size());
+        tester.completeUpgrade(default1, version, "default");
+        tester.completeUpgrade(default3, version, "default");
+        upgrader.maintain();
         assertTrue("All jobs consumed", tester.buildSystem().jobs().isEmpty());
     }
 

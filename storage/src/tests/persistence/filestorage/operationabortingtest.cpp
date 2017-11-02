@@ -5,12 +5,15 @@
 #include <tests/persistence/common/persistenceproviderwrapper.h>
 #include <vespa/persistence/dummyimpl/dummypersistence.h>
 #include <tests/persistence/common/filestortestfixture.h>
+#include <vespa/document/test/make_document_bucket.h>
 #include <vespa/vespalib/util/barrier.h>
 #include <vespa/vespalib/util/thread.h>
 #include <vespa/vespalib/stllike/hash_set_insert.hpp>
 
 #include <vespa/log/log.h>
 LOG_SETUP(".operationabortingtest");
+
+using document::test::makeDocumentBucket;
 
 namespace storage {
 
@@ -190,13 +193,37 @@ OperationAbortingTest::validateReplies(
 
 namespace {
 
+class ExplicitBucketSetPredicate : public AbortBucketOperationsCommand::AbortPredicate {
+    using BucketSet = vespalib::hash_set<document::BucketId, document::BucketId::hash>;
+    BucketSet _bucketsToAbort;
+
+    bool doShouldAbort(const document::Bucket &bucket) const override;
+public:
+    ~ExplicitBucketSetPredicate();
+
+    template <typename Iterator>
+    ExplicitBucketSetPredicate(Iterator first, Iterator last)
+        : _bucketsToAbort(first, last)
+    { }
+
+    const BucketSet& getBucketsToAbort() const {
+        return _bucketsToAbort;
+    }
+};
+
+bool
+ExplicitBucketSetPredicate::doShouldAbort(const document::Bucket &bucket) const {
+    return _bucketsToAbort.find(bucket.getBucketId()) != _bucketsToAbort.end();
+}
+
+ExplicitBucketSetPredicate::~ExplicitBucketSetPredicate() { }
+
 template <typename Container>
 AbortBucketOperationsCommand::SP
 makeAbortCmd(const Container& buckets)
 {
     std::unique_ptr<AbortBucketOperationsCommand::AbortPredicate> pred(
-            new AbortBucketOperationsCommand::ExplicitBucketSetPredicate(
-                    buckets.begin(), buckets.end()));
+            new ExplicitBucketSetPredicate(buckets.begin(), buckets.end()));
     AbortBucketOperationsCommand::SP cmd(
             new AbortBucketOperationsCommand(std::move(pred)));
     return cmd;
@@ -335,7 +362,7 @@ OperationAbortingTest::testDoNotAbortCreateBucketCommands()
 {
     document::BucketId bucket(16, 1);
     std::vector<api::StorageMessage::SP> msgs;
-    msgs.push_back(api::StorageMessage::SP(new api::CreateBucketCommand(bucket)));
+    msgs.push_back(api::StorageMessage::SP(new api::CreateBucketCommand(makeDocumentBucket(bucket))));
 
     bool shouldCreateBucketInitially(false);
     doTestSpecificOperationsNotAborted(
@@ -349,7 +376,7 @@ OperationAbortingTest::testDoNotAbortRecheckBucketCommands()
 {
     document::BucketId bucket(16, 1);
     std::vector<api::StorageMessage::SP> msgs;
-    msgs.push_back(api::StorageMessage::SP(new RecheckBucketInfoCommand(bucket)));
+    msgs.push_back(api::StorageMessage::SP(new RecheckBucketInfoCommand(makeDocumentBucket(bucket))));
 
     bool shouldCreateBucketInitially(true);
     doTestSpecificOperationsNotAborted(
@@ -373,7 +400,7 @@ OperationAbortingTest::testDoNotAbortDeleteBucketCommands()
 {
     document::BucketId bucket(16, 1);
     std::vector<api::StorageMessage::SP> msgs;
-    api::DeleteBucketCommand::SP cmd(new api::DeleteBucketCommand(bucket));
+    api::DeleteBucketCommand::SP cmd(new api::DeleteBucketCommand(makeDocumentBucket(bucket)));
     msgs.push_back(cmd);
 
     bool shouldCreateBucketInitially(true);

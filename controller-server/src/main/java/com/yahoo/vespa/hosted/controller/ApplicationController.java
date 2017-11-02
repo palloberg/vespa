@@ -22,10 +22,6 @@ import com.yahoo.vespa.hosted.controller.api.identifiers.DeploymentId;
 import com.yahoo.vespa.hosted.controller.api.identifiers.Hostname;
 import com.yahoo.vespa.hosted.controller.api.identifiers.RevisionId;
 import com.yahoo.vespa.hosted.controller.api.identifiers.TenantId;
-import com.yahoo.vespa.hosted.controller.api.integration.athens.NToken;
-import com.yahoo.vespa.hosted.controller.api.integration.athens.ZmsClient;
-import com.yahoo.vespa.hosted.controller.api.integration.athens.ZmsClientFactory;
-import com.yahoo.vespa.hosted.controller.api.integration.athens.ZmsException;
 import com.yahoo.vespa.hosted.controller.api.integration.configserver.ConfigServerClient;
 import com.yahoo.vespa.hosted.controller.api.integration.configserver.Log;
 import com.yahoo.vespa.hosted.controller.api.integration.configserver.NoInstanceException;
@@ -44,6 +40,10 @@ import com.yahoo.vespa.hosted.controller.application.DeploymentJobs;
 import com.yahoo.vespa.hosted.controller.application.DeploymentJobs.JobReport;
 import com.yahoo.vespa.hosted.controller.application.JobStatus;
 import com.yahoo.vespa.hosted.controller.application.SourceRevision;
+import com.yahoo.vespa.hosted.controller.athenz.AthenzClientFactory;
+import com.yahoo.vespa.hosted.controller.athenz.NToken;
+import com.yahoo.vespa.hosted.controller.athenz.ZmsClient;
+import com.yahoo.vespa.hosted.controller.athenz.ZmsException;
 import com.yahoo.vespa.hosted.controller.deployment.DeploymentTrigger;
 import com.yahoo.vespa.hosted.controller.maintenance.DeploymentExpirer;
 import com.yahoo.vespa.hosted.controller.persistence.ControllerDb;
@@ -84,7 +84,7 @@ public class ApplicationController {
     private final CuratorDb curator;
 
     private final RotationRepository rotationRepository;
-    private final ZmsClientFactory zmsClientFactory;
+    private final AthenzClientFactory zmsClientFactory;
     private final NameService nameService;
     private final ConfigServerClient configserverClient;
     private final RoutingGenerator routingGenerator;
@@ -94,7 +94,7 @@ public class ApplicationController {
     
     ApplicationController(Controller controller, ControllerDb db, CuratorDb curator,
                           RotationRepository rotationRepository,
-                          ZmsClientFactory zmsClientFactory,
+                          AthenzClientFactory zmsClientFactory,
                           NameService nameService, ConfigServerClient configserverClient,
                           RoutingGenerator routingGenerator, Clock clock) {
         this.controller = controller;
@@ -111,9 +111,10 @@ public class ApplicationController {
 
         for (Application application : db.listApplications()) {
             try (Lock lock = lock(application.id())) {
-                Optional<Application> optionalApplication = db.getApplication(application.id()); // re-get inside lock
-                if ( ! optionalApplication.isPresent()) continue; // was removed since listing; ok
-                store(optionalApplication.get(), lock); // re-write all applications to update storage format
+                Optional<LockedApplication> lockedApplication = db.getApplication(application.id())
+                        .map(app -> new LockedApplication(app, lock));
+                if ( ! lockedApplication.isPresent()) continue; // was removed since listing; ok
+                store(lockedApplication.get()); // re-write all applications to update storage format
             }
         }
     }
@@ -123,6 +124,12 @@ public class ApplicationController {
         return db.getApplication(id);
     }
 
+
+    /** Returns an locked application with the given id that be updated and stored */
+    public Optional<LockedApplication> get(ApplicationId id, Lock lock) {
+        return db.getApplication(id).map(application -> new LockedApplication(application, lock));
+    }
+
     /**
      * Returns the application with the given id
      * 
@@ -130,6 +137,16 @@ public class ApplicationController {
      */
     public Application require(ApplicationId id) {
         return get(id).orElseThrow(() -> new IllegalArgumentException(id + " not found"));
+    }
+
+    /**
+     * Returns a locked application that be updated and stored
+     *
+     * @throws IllegalArgumentException if it does not exist
+     *
+     */
+    public LockedApplication require(ApplicationId id, Lock lock) {
+        return get(id, lock).orElseThrow(() -> new IllegalArgumentException(id + " not found"));
     }
 
     /** Returns a snapshot of all applications */
@@ -249,7 +266,7 @@ public class ApplicationController {
             if (tenant.get().isAthensTenant() && ! token.isPresent())
                 throw new IllegalArgumentException("Could not create '" + id + "': No NToken provided");
             if (tenant.get().isAthensTenant()) {
-                ZmsClient zmsClient = zmsClientFactory.createClientWithAuthorizedServiceToken(token.get());
+                ZmsClient zmsClient = zmsClientFactory.createZmsClientWithAuthorizedServiceToken(token.get());
                 try {
                     zmsClient.deleteApplication(tenant.get().getAthensDomain().get(), 
                                                 new com.yahoo.vespa.hosted.controller.api.identifiers.ApplicationId(id.application().value()));
@@ -259,8 +276,8 @@ public class ApplicationController {
                 zmsClient.addApplication(tenant.get().getAthensDomain().get(), 
                                          new com.yahoo.vespa.hosted.controller.api.identifiers.ApplicationId(id.application().value()));
             }
-            Application application = new Application(id);
-            store(application, lock);
+            LockedApplication application = new LockedApplication(new Application(id), lock);
+            store(application);
             log.info("Created " + application);
             return application;
         }
@@ -272,9 +289,10 @@ public class ApplicationController {
                                             ApplicationPackage applicationPackage, DeployOptions options) {
         try (Lock lock = lock(applicationId)) {
             // Determine what we are doing
-            Application application = get(applicationId).orElse(new Application(applicationId));
+            LockedApplication application = get(applicationId, lock).orElse(new LockedApplication(
+                    new Application(applicationId), lock)
+            );
 
-            // Decide version to deploy, if applicable.
             Version version;
             if (options.deployCurrentVersion)
                 version = application.currentVersion(controller, zone);
@@ -284,13 +302,6 @@ public class ApplicationController {
                 return unexpectedDeployment(applicationId, zone, applicationPackage);
             else
                 version = application.currentDeployVersion(controller, zone);
-
-            // Ensure that the deploying change is tested
-            if (! canDeployDirectlyTo(zone, options) &&
-                ! application.deploymentJobs().isDeployableTo(zone.environment(), application.deploying()))
-                throw new IllegalArgumentException("Rejecting deployment of " + application + " to " + zone +
-                                                   " as pending " + application.deploying().get() +
-                                                   " is untested");
 
             DeploymentJobs.JobType jobType = DeploymentJobs.JobType.from(controller.zoneRegistry().system(), zone);
             ApplicationRevision revision = toApplicationPackageRevision(applicationPackage, options.screwdriverBuildJob);
@@ -303,15 +314,17 @@ public class ApplicationController {
                     application = application.withProjectId(options.screwdriverBuildJob.get().screwdriverId.value());
                 if (application.deploying().isPresent() && application.deploying().get() instanceof Change.ApplicationChange)
                     application = application.withDeploying(Optional.of(Change.ApplicationChange.of(revision)));
-                if ( ! triggeredWith(revision, application, jobType) && !canDeployDirectlyTo(zone, options) && jobType != null) {
-                    // Triggering information is used to store which changes were made or attempted
-                    // - For self-triggered applications we don't have any trigger information, so we add it here.
-                    // - For all applications, we don't have complete control over which revision is actually built,
-                    //   so we update it here with what we actually triggered if necessary
+                if ( ! canDeployDirectlyTo(zone, options) && jobType != null) {
+                    // Update with (potentially) missing information about what we triggered
+                    JobStatus.JobRun triggering = getOrCreateTriggering(application, version, jobType);
                     application = application.with(application.deploymentJobs()
-                                                           .withTriggering(jobType, application.deploying(),
-                                                                           version, Optional.of(revision),
-                                                                           clock.instant()));
+                                                           .withTriggering(jobType,
+                                                                           application.deploying(),
+                                                                           triggering.id(),
+                                                                           version,
+                                                                           Optional.of(revision),
+                                                                           triggering.reason(),
+                                                                           triggering.at()));
                 }
 
                 // Delete zones not listed in DeploymentSpec, if allowed
@@ -321,8 +334,14 @@ public class ApplicationController {
                 // Clean up deployment jobs that are no longer referenced by deployment spec
                 application = deleteUnreferencedDeploymentJobs(application);
 
-                store(application, lock); // store missing information even if we fail deployment below
+                store(application); // store missing information even if we fail deployment below
             }
+
+            // Ensure that the deploying change is tested
+            if (! canDeployDirectlyTo(zone, options) &&
+                ! application.deploymentJobs().isDeployableTo(zone.environment(), application.deploying()))
+                throw new IllegalArgumentException("Rejecting deployment of " + application + " to " + zone +
+                                                   " as " + application.deploying().get() + " is not tested");
 
             // Carry out deployment
             DeploymentId deploymentId = new DeploymentId(applicationId, zone);
@@ -333,8 +352,14 @@ public class ApplicationController {
                     configserverClient.prepare(deploymentId, options, rotationInDns.cnames(), rotationInDns.rotations(), 
                                                applicationPackage.zippedContent());
             preparedApplication.activate();
-            application = application.with(new Deployment(zone, revision, version, clock.instant()));
-            store(application, lock);
+
+            // Use info from previous deployments is available
+            Deployment previousDeployment = application.deployments().getOrDefault(zone, new Deployment(zone, revision, version, clock.instant()));
+            Deployment newDeployment = new Deployment(zone, revision, version, clock.instant(),
+                        previousDeployment.clusterUtils(), previousDeployment.clusterInfo(), previousDeployment.metrics());
+
+            application = application.with(newDeployment);
+            store(application);
 
             return new ActivateResult(new RevisionId(applicationPackage.hash()), preparedApplication.prepareResponse());
         }
@@ -351,9 +376,8 @@ public class ApplicationController {
         return new ActivateResult(new RevisionId(applicationPackage.hash()), prepareResponse);
     }
 
-    private Application deleteRemovedDeployments(Application application) {
-        List<Deployment> deploymentsToRemove = application.deployments().values().stream()
-                .filter(deployment -> deployment.zone().environment() == Environment.prod)
+    private LockedApplication deleteRemovedDeployments(LockedApplication application) {
+        List<Deployment> deploymentsToRemove = application.productionDeployments().values().stream()
                 .filter(deployment -> ! application.deploymentSpec().includes(deployment.zone().environment(), 
                                                                               Optional.of(deployment.zone().region())))
                 .collect(Collectors.toList());
@@ -370,15 +394,16 @@ public class ApplicationController {
                                                (deploymentsToRemove.size() > 1 ? "these zones" : "this zone") +
                                                " in deployment.xml");
         
-        Application applicationWithRemoval = application;
+        LockedApplication applicationWithRemoval = application;
         for (Deployment deployment : deploymentsToRemove)
-            applicationWithRemoval = deactivate(applicationWithRemoval, deployment, false);
+            applicationWithRemoval = deactivate(applicationWithRemoval, deployment.zone());
         return applicationWithRemoval;
     }
 
-    private Application deleteUnreferencedDeploymentJobs(Application application) {
+    private LockedApplication deleteUnreferencedDeploymentJobs(LockedApplication application) {
         for (DeploymentJobs.JobType job : application.deploymentJobs().jobStatus().keySet()) {
             Optional<Zone> zone = job.zone(controller.system());
+
             if ( ! job.isProduction() || (zone.isPresent() && application.deploymentSpec().includes(zone.get().environment(), zone.map(Zone::region))))
                 continue;
             application = application.withoutDeploymentJob(job);
@@ -386,14 +411,21 @@ public class ApplicationController {
         return application;
     }
 
-    private boolean triggeredWith(ApplicationRevision revision, Application application, DeploymentJobs.JobType jobType) {
-        if (jobType == null) return false;
+    /**
+     * Returns the existing triggering of the given type from this application, 
+     * or an incomplete one created in this method if none is present
+     * This is needed (only) in the case where some external entity triggers a job.
+     */
+    private JobStatus.JobRun getOrCreateTriggering(Application application, Version version, DeploymentJobs.JobType jobType) {
+        if (jobType == null) return incompleteTriggeringEvent(version);
         JobStatus status = application.deploymentJobs().jobStatus().get(jobType);
-        if (status == null) return false;
-        if ( ! status.lastTriggered().isPresent()) return false;
-        JobStatus.JobRun triggered = status.lastTriggered().get();
-        if ( ! triggered.revision().isPresent()) return false;
-        return triggered.revision().get().equals(revision);
+        if (status == null) return  incompleteTriggeringEvent(version);
+        if ( ! status.lastTriggered().isPresent()) return  incompleteTriggeringEvent(version);
+        return status.lastTriggered().get();
+    }
+
+    private JobStatus.JobRun incompleteTriggeringEvent(Version version) {
+        return new JobStatus.JobRun(-1, version, Optional.empty(), false, "", clock.instant());        
     }
     
     private DeployOptions withVersion(Version version, DeployOptions options) {
@@ -487,7 +519,7 @@ public class ApplicationController {
 
             // NB: Next 2 lines should have been one transaction
             if (tenant.isAthensTenant())
-                zmsClientFactory.createClientWithAuthorizedServiceToken(token.get())
+                zmsClientFactory.createZmsClientWithAuthorizedServiceToken(token.get())
                         .deleteApplication(tenant.getAthensDomain().get(), new com.yahoo.vespa.hosted.controller.api.identifiers.ApplicationId(id.application().value()));
             db.deleteApplication(id);
 
@@ -496,20 +528,12 @@ public class ApplicationController {
         }
     }
 
-    public void setJiraIssueId(ApplicationId id, Optional<String> jiraIssueId) {
-        try (Lock lock = lock(id)) {
-            get(id).ifPresent(application -> store(application.withJiraIssueId(jiraIssueId), lock));
-        }
-    }
-
     /** 
      * Replace any previous version of this application by this instance 
      * 
-     * @param application the application version to store
-     * @param lock the lock held on this application since before modification started
+     * @param application a locked application to store
      */
-    @SuppressWarnings("unused") // lock is part of the signature to remind people to acquire it, not needed internally
-    public void store(Application application, Lock lock) {
+    public void store(LockedApplication application) {
         db.store(application);
     }
 
@@ -541,32 +565,41 @@ public class ApplicationController {
     }
 
     /** Deactivate application in the given zone */
-    public Application deactivate(Application application, Zone zone) {
-        return deactivate(application, zone, Optional.empty(), false);
+    public void deactivate(Application application, Zone zone) {
+        deactivate(application, zone, Optional.empty(), false);
     }
 
     /** Deactivate a known deployment of the given application */
-    public Application deactivate(Application application, Deployment deployment, boolean requireThatDeploymentHasExpired) {
-        return deactivate(application, deployment.zone(), Optional.of(deployment), requireThatDeploymentHasExpired);
+    public void deactivate(Application application, Deployment deployment, boolean requireThatDeploymentHasExpired) {
+        deactivate(application, deployment.zone(), Optional.of(deployment), requireThatDeploymentHasExpired);
     }
 
-    private Application deactivate(Application application, Zone zone, Optional<Deployment> deployment,
-                                   boolean requireThatDeploymentHasExpired) {
+    private void deactivate(Application application, Zone zone, Optional<Deployment> deployment,
+                            boolean requireThatDeploymentHasExpired) {
         try (Lock lock = lock(application.id())) {
-            if (deployment.isPresent() && requireThatDeploymentHasExpired && ! DeploymentExpirer.hasExpired(
-                    controller.zoneRegistry(), deployment.get(), clock.instant())) {
-                return application;
+            LockedApplication lockedApplication = controller.applications().require(application.id(), lock);
+            if (deployment.isPresent() && requireThatDeploymentHasExpired && 
+                ! DeploymentExpirer.hasExpired(controller.zoneRegistry(), deployment.get(), clock.instant())) {
+                return;
             }
-
-            try { 
-                configserverClient.deactivate(new DeploymentId(application.id(), zone));
-            }  catch (NoInstanceException ignored) {
-                // ok; already gone
-            }
-            application = application.withoutDeploymentIn(zone);
-            store(application, lock);
-            return application;
+            lockedApplication = deactivate(lockedApplication, zone);
+            store(lockedApplication);
         }
+    }
+
+    /** 
+     * Deactivates a locked application without storing it
+     * 
+     * @return the application with the deployment in the given zone removed
+     */
+    private LockedApplication deactivate(LockedApplication application, Zone zone) {
+        try {
+            configserverClient.deactivate(new DeploymentId(application.id(), zone));
+        }
+        catch (NoInstanceException ignored) {
+            // ok; already gone
+        }
+        return application.withoutDeploymentIn(zone);
     }
 
     public DeploymentTrigger deploymentTrigger() { return deploymentTrigger; }

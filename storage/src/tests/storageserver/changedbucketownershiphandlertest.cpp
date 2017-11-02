@@ -13,7 +13,10 @@
 #include <tests/common/teststorageapp.h>
 #include <tests/common/testhelper.h>
 #include <tests/common/dummystoragelink.h>
+#include <vespa/document/test/make_document_bucket.h>
 #include <vespa/storage/storageserver/changedbucketownershiphandler.h>
+
+using document::test::makeDocumentBucket;
 
 namespace storage {
 
@@ -79,8 +82,8 @@ class ChangedBucketOwnershipHandlerTest : public CppUnit::TestFixture
             const lib::ClusterState& state,
             const document::BucketId& lastId) const;
 
-    document::BucketId getBucketToAbort() const;
-    document::BucketId getBucketToAllow() const;
+    document::Bucket getBucketToAbort() const;
+    document::Bucket getBucketToAllow() const;
 
     void sendAndExpectAbortedCreateBucket(uint16_t fromDistributorIndex);
 
@@ -194,7 +197,7 @@ bool
 hasAbortedAllOf(const AbortBucketOperationsCommand::SP& cmd, const Vec& v)
 {
     for (auto& b : v) {
-        if (!cmd->shouldAbort(b)) {
+        if (!cmd->shouldAbort(makeDocumentBucket(b))) {
             return false;
         }
     }
@@ -206,7 +209,7 @@ bool
 hasAbortedNoneOf(const AbortBucketOperationsCommand::SP& cmd, const Vec& v)
 {
     for (auto& b : v) {
-        if (cmd->shouldAbort(b)) {
+        if (cmd->shouldAbort(makeDocumentBucket(b))) {
             return false;
         }
     }
@@ -383,7 +386,7 @@ ChangedBucketOwnershipHandlerTest::sendAndExpectAbortedCreateBucket(
         uint16_t fromDistributorIndex)
 {
     document::BucketId bucket(16, 6786);
-    auto msg = std::make_shared<api::CreateBucketCommand>(bucket);
+    auto msg = std::make_shared<api::CreateBucketCommand>(makeDocumentBucket(bucket));
     msg->setSourceIndex(fromDistributorIndex);
 
     _top->sendDown(msg);
@@ -450,22 +453,22 @@ ChangedBucketOwnershipHandlerTest::changeAbortsMessage(MsgParams&&... params)
  * Returns a bucket that is not owned by the sending distributor (1). More
  * specifically, it returns a bucket that is owned by distributor 2.
  */
-document::BucketId
+document::Bucket
 ChangedBucketOwnershipHandlerTest::getBucketToAbort() const
 {
     lib::ClusterState state(getDefaultTestClusterState());
-    return nextOwnedBucket(2, state, document::BucketId());
+    return makeDocumentBucket(nextOwnedBucket(2, state, document::BucketId()));
 }
 
 /**
  * Returns a bucket that _is_ owned by distributor 1 and should thus be
  * allowed through.
  */
-document::BucketId
+document::Bucket
 ChangedBucketOwnershipHandlerTest::getBucketToAllow() const
 {
     lib::ClusterState state(getDefaultTestClusterState());
-    return nextOwnedBucket(1, state, document::BucketId());
+    return makeDocumentBucket(nextOwnedBucket(1, state, document::BucketId()));
 }
 
 void

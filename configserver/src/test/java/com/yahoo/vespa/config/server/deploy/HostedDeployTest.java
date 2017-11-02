@@ -127,8 +127,8 @@ public class HostedDeployTest {
 
     private static ConfigserverConfig createConfigserverConfig() {
         return new ConfigserverConfig(new ConfigserverConfig.Builder()
-                                              .configServerDBDir(Files.createTempDir()
-                                                                      .getAbsolutePath())
+                                              .configServerDBDir(Files.createTempDir().getAbsolutePath())
+                                              .configDefinitionsDir(Files.createTempDir().getAbsolutePath())
                                               .dockerRegistry(dockerRegistry)
                                               .dockerVespaBaseImage(dockerVespaBaseImage)
                                               .hostedVespa(true)

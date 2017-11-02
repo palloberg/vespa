@@ -7,8 +7,11 @@
 #include <vespa/storageapi/message/persistence.h>
 #include <vespa/storageframework/defaultimplementation/clock/fakeclock.h>
 #include <tests/common/dummystoragelink.h>
+#include <vespa/document/test/make_document_bucket.h>
 #include <vespa/vdslib/state/random.h>
 #include <vespa/vdstestlib/cppunit/macros.h>
+
+using document::test::makeDocumentBucket;
 
 namespace storage {
 namespace distributor {
@@ -185,7 +188,7 @@ private:
     std::shared_ptr<api::PutCommand> createPutToNode(uint16_t node) const {
         document::BucketId bucket(16, 1234);
         std::shared_ptr<api::PutCommand> cmd(
-                new api::PutCommand(bucket,
+                new api::PutCommand(makeDocumentBucket(bucket),
                                     createDummyDocumentForBucket(bucket),
                                     api::Timestamp(123456)));
         cmd->setAddress(makeStorageAddress(node));
@@ -197,7 +200,7 @@ private:
     {
         document::BucketId bucket(16, 1234);
         std::shared_ptr<api::RemoveCommand> cmd(
-                new api::RemoveCommand(bucket,
+                new api::RemoveCommand(makeDocumentBucket(bucket),
                                        document::DocumentId(
                                             createDummyIdString(bucket)),
                                        api::Timestamp(123456)));
@@ -239,7 +242,7 @@ PendingMessageTrackerTest::testSimple()
 
     std::shared_ptr<api::RemoveCommand> remove(
             new api::RemoveCommand(
-                    document::BucketId(16, 1234),
+                    makeDocumentBucket(document::BucketId(16, 1234)),
                     document::DocumentId("userdoc:footype:1234:foo"), 1001));
     remove->setAddress(
             api::StorageMessageAddress("storage", lib::NodeType::STORAGE, 0));
@@ -251,7 +254,7 @@ PendingMessageTrackerTest::testSimple()
 
         CPPUNIT_ASSERT_CONTAIN(
                 std::string(
-                        "<b>BucketId(0x40000000000004d2)</b>\n"
+                        "<b>Bucket(BucketSpace(0x0000000000000000), BucketId(0x40000000000004d2))</b>\n"
                         "<ul>\n"
                         "<li><i>Node 0</i>: <b>1970-01-01 00:00:01</b> "
                         "Remove(BucketId(0x40000000000004d2), "
@@ -280,7 +283,7 @@ PendingMessageTrackerTest::insertMessages(PendingMessageTracker& tracker)
         ost << "userdoc:footype:1234:" << i;
         std::shared_ptr<api::RemoveCommand> remove(
                 new api::RemoveCommand(
-                        document::BucketId(16, 1234),
+                        makeDocumentBucket(document::BucketId(16, 1234)),
                         document::DocumentId(ost.str()), 1000 + i));
         remove->setAddress(
                 api::StorageMessageAddress("storage",
@@ -291,7 +294,7 @@ PendingMessageTrackerTest::insertMessages(PendingMessageTracker& tracker)
     for (uint32_t i = 0; i < 4; i++) {
         std::ostringstream ost;
         ost << "userdoc:footype:4567:" << i;
-        std::shared_ptr<api::RemoveCommand> remove(new api::RemoveCommand(document::BucketId(16, 4567), document::DocumentId(ost.str()), 2000 + i));
+        std::shared_ptr<api::RemoveCommand> remove(new api::RemoveCommand(makeDocumentBucket(document::BucketId(16, 4567)), document::DocumentId(ost.str()), 2000 + i));
         remove->setAddress(api::StorageMessageAddress("storage", lib::NodeType::STORAGE, i % 2));
         tracker.insert(remove);
     }
@@ -338,14 +341,14 @@ PendingMessageTrackerTest::testMultipleMessages()
 
         CPPUNIT_ASSERT_CONTAIN(
                 std::string(
-                        "<b>BucketId(0x40000000000004d2)</b>\n"
+                        "<b>Bucket(BucketSpace(0x0000000000000000), BucketId(0x40000000000004d2))</b>\n"
                         "<ul>\n"
                         "<li><i>Node 0</i>: <b>1970-01-01 00:00:01</b> Remove(BucketId(0x40000000000004d2), userdoc:footype:1234:0, timestamp 1000)</li>\n"
                         "<li><i>Node 0</i>: <b>1970-01-01 00:00:01</b> Remove(BucketId(0x40000000000004d2), userdoc:footype:1234:2, timestamp 1002)</li>\n"
                         "<li><i>Node 1</i>: <b>1970-01-01 00:00:01</b> Remove(BucketId(0x40000000000004d2), userdoc:footype:1234:1, timestamp 1001)</li>\n"
                         "<li><i>Node 1</i>: <b>1970-01-01 00:00:01</b> Remove(BucketId(0x40000000000004d2), userdoc:footype:1234:3, timestamp 1003)</li>\n"
                         "</ul>\n"
-                        "<b>BucketId(0x40000000000011d7)</b>\n"
+                        "<b>Bucket(BucketSpace(0x0000000000000000), BucketId(0x40000000000011d7))</b>\n"
                         "<ul>\n"
                         "<li><i>Node 0</i>: <b>1970-01-01 00:00:01</b> Remove(BucketId(0x40000000000011d7), userdoc:footype:4567:0, timestamp 2000)</li>\n"
                         "<li><i>Node 0</i>: <b>1970-01-01 00:00:01</b> Remove(BucketId(0x40000000000011d7), userdoc:footype:4567:2, timestamp 2002)</li>\n"
@@ -434,7 +437,7 @@ PendingMessageTrackerTest::testGetPendingMessageTypes()
 
     std::shared_ptr<api::RemoveCommand> remove(
             new api::RemoveCommand(
-                    bid,
+                    makeDocumentBucket(bid),
                     document::DocumentId("userdoc:footype:1234:foo"), 1001));
     remove->setAddress(
             api::StorageMessageAddress("storage", lib::NodeType::STORAGE, 0));
@@ -442,19 +445,19 @@ PendingMessageTrackerTest::testGetPendingMessageTypes()
 
     {
         TestChecker checker;
-        tracker.checkPendingMessages(0, bid, checker);
+        tracker.checkPendingMessages(0, makeDocumentBucket(bid), checker);
         CPPUNIT_ASSERT_EQUAL(127, (int)checker.pri);
     }
 
     {
         TestChecker checker;
-        tracker.checkPendingMessages(0, document::BucketId(16, 1235), checker);
+        tracker.checkPendingMessages(0, makeDocumentBucket(document::BucketId(16, 1235)), checker);
         CPPUNIT_ASSERT_EQUAL(255, (int)checker.pri);
     }
 
     {
         TestChecker checker;
-        tracker.checkPendingMessages(1, bid, checker);
+        tracker.checkPendingMessages(1, makeDocumentBucket(bid), checker);
         CPPUNIT_ASSERT_EQUAL(255, (int)checker.pri);
     }
 }
@@ -469,25 +472,25 @@ PendingMessageTrackerTest::testHasPendingMessage()
     PendingMessageTracker tracker(compReg);
     document::BucketId bid(16, 1234);
 
-    CPPUNIT_ASSERT(!tracker.hasPendingMessage(1, bid, api::MessageType::REMOVE_ID));
+    CPPUNIT_ASSERT(!tracker.hasPendingMessage(1, makeDocumentBucket(bid), api::MessageType::REMOVE_ID));
 
     {
         std::shared_ptr<api::RemoveCommand> remove(
                 new api::RemoveCommand(
-                        bid,
+                        makeDocumentBucket(bid),
                         document::DocumentId("userdoc:footype:1234:foo"), 1001));
         remove->setAddress(
                 api::StorageMessageAddress("storage", lib::NodeType::STORAGE, 1));
         tracker.insert(remove);
     }
 
-    CPPUNIT_ASSERT(tracker.hasPendingMessage(1, bid, api::MessageType::REMOVE_ID));
-    CPPUNIT_ASSERT(!tracker.hasPendingMessage(0, bid, api::MessageType::REMOVE_ID));
-    CPPUNIT_ASSERT(!tracker.hasPendingMessage(2, bid, api::MessageType::REMOVE_ID));
+    CPPUNIT_ASSERT(tracker.hasPendingMessage(1, makeDocumentBucket(bid), api::MessageType::REMOVE_ID));
+    CPPUNIT_ASSERT(!tracker.hasPendingMessage(0, makeDocumentBucket(bid), api::MessageType::REMOVE_ID));
+    CPPUNIT_ASSERT(!tracker.hasPendingMessage(2, makeDocumentBucket(bid), api::MessageType::REMOVE_ID));
     CPPUNIT_ASSERT(!tracker.hasPendingMessage(1,
-                                              document::BucketId(16, 1233),
+                                              makeDocumentBucket(document::BucketId(16, 1233)),
                                               api::MessageType::REMOVE_ID));
-    CPPUNIT_ASSERT(!tracker.hasPendingMessage(1, bid, api::MessageType::DELETEBUCKET_ID));
+    CPPUNIT_ASSERT(!tracker.hasPendingMessage(1, makeDocumentBucket(bid), api::MessageType::DELETEBUCKET_ID));
 }
 
 namespace {
@@ -524,7 +527,7 @@ PendingMessageTrackerTest::testGetAllMessagesForSingleBucket()
 
     {
         OperationEnumerator enumerator;
-        tracker.checkPendingMessages(document::BucketId(16, 1234), enumerator);
+        tracker.checkPendingMessages(makeDocumentBucket(document::BucketId(16, 1234)), enumerator);
         CPPUNIT_ASSERT_EQUAL(std::string("Remove -> 0\n"
                     "Remove -> 0\n"
                     "Remove -> 1\n"
@@ -533,7 +536,7 @@ PendingMessageTrackerTest::testGetAllMessagesForSingleBucket()
     }
     {
         OperationEnumerator enumerator;
-        tracker.checkPendingMessages(document::BucketId(16, 9876), enumerator);
+        tracker.checkPendingMessages(makeDocumentBucket(document::BucketId(16, 9876)), enumerator);
         CPPUNIT_ASSERT_EQUAL(std::string(""), enumerator.str());
     }
 }

@@ -18,6 +18,7 @@ LOG_SETUP(".distributor.callback.doc.put");
 
 using namespace storage::distributor;
 using namespace storage;
+using document::BucketSpace;
 
 PutOperation::PutOperation(DistributorComponent& manager,
                            const std::shared_ptr<api::PutCommand> & msg,
@@ -115,8 +116,9 @@ PutOperation::checkCreateBucket(const lib::Distribution& dist,
     // Send create buckets for all nodes in ideal state where we don't
     // currently have copies.
     for (uint32_t i = 0; i < createNodes.size(); i++) {
+        document::Bucket bucket(originalCommand.getBucket().getBucketSpace(), entry.getBucketId());
         std::shared_ptr<api::CreateBucketCommand> cbc(
-                new api::CreateBucketCommand(entry.getBucketId()));
+                new api::CreateBucketCommand(bucket));
         if (active.contains(createNodes[i])) {
             BucketCopy copy(*entry->getNode(createNodes[i]));
             copy.setActive(true);
@@ -205,8 +207,9 @@ PutOperation::insertDatabaseEntryAndScheduleCreateBucket(
     }
     for (uint32_t i=0, n=copies.size(); i<n; ++i) {
         if (!copies[i].isNewCopy()) continue;
+        document::Bucket bucket(originalCommand.getBucket().getBucketSpace(), copies[i].getBucketId());
         std::shared_ptr<api::CreateBucketCommand> cbc(
-                new api::CreateBucketCommand(copies[i].getBucketId()));
+                new api::CreateBucketCommand(bucket));
         if (setOneActive && active.contains(copies[i].getNode().getIndex())) {
             cbc->setActive(true);
         }
@@ -221,13 +224,15 @@ PutOperation::insertDatabaseEntryAndScheduleCreateBucket(
 
 void
 PutOperation::sendPutToBucketOnNode(
+        document::BucketSpace bucketSpace,
         const document::BucketId& bucketId,
         const uint16_t node,
         std::vector<PersistenceMessageTracker::ToSend>& putBatch)
 {
+    document::Bucket bucket(bucketSpace, bucketId);
     std::shared_ptr<api::PutCommand> command(
             new api::PutCommand(
-                    bucketId,
+                    bucket,
                     _msg->getDocument(),
                     _msg->getTimestamp()));
     LOG(debug,
@@ -282,7 +287,7 @@ PutOperation::onStart(DistributorMessageSender& sender)
         for (size_t i = 0; i < targets.size(); ++i) {
             if (_manager.getDistributor().getPendingMessageTracker().
                 hasPendingMessage(targets[i].getNode().getIndex(),
-                                  targets[i].getBucketId(),
+                                  targets[i].getBucket(),
                                   api::MessageType::DELETEBUCKET_ID))
             {
                 _tracker.fail(sender, api::ReturnCode(api::ReturnCode::BUCKET_DELETED,
@@ -314,7 +319,8 @@ PutOperation::onStart(DistributorMessageSender& sender)
         // Now send PUTs
         for (uint32_t i = 0; i < targets.size(); i++) {
             const OperationTarget& target(targets[i]);
-            sendPutToBucketOnNode(target.getBucketId(), target.getNode().getIndex(),
+            sendPutToBucketOnNode(_msg->getBucket().getBucketSpace(),
+                                  target.getBucketId(), target.getNode().getIndex(),
                                   putBatch);
         }
 

@@ -9,10 +9,12 @@
 #include <vespa/storage/distributor/idealstatemanager.h>
 #include <vespa/storageapi/message/multioperation.h>
 #include <tests/distributor/distributortestutil.h>
+#include <vespa/document/test/make_document_bucket.h>
 #include <vespa/storage/distributor/distributor.h>
 
 using std::shared_ptr;
 using namespace document;
+using document::test::makeDocumentBucket;
 
 namespace storage {
 
@@ -74,7 +76,7 @@ SplitOperationTest::testSimple()
                      tooLargeBucketSize, 250);
 
     SplitOperation op("storage",
-                      BucketAndNodes(document::BucketId(16, 1),
+                      BucketAndNodes(makeDocumentBucket(document::BucketId(16, 1)),
                                      toVector<uint16_t>(0)),
                       maxSplitBits,
                       splitCount,
@@ -154,7 +156,7 @@ SplitOperationTest::testMultiNodeFailure()
 
 
     SplitOperation op("storage",
-                      BucketAndNodes(document::BucketId(16, 1),
+                      BucketAndNodes(makeDocumentBucket(document::BucketId(16, 1)),
                                      toVector<uint16_t>(0,1)),
                       maxSplitBits,
                       splitCount,
@@ -254,7 +256,7 @@ SplitOperationTest::testCopyTrustedStatusNotCarriedOverAfterSplit()
                                      "2=550/60/70000");
 
     SplitOperation op("storage",
-                      BucketAndNodes(sourceBucket, toVector<uint16_t>(0, 1)),
+                      BucketAndNodes(makeDocumentBucket(sourceBucket), toVector<uint16_t>(0, 1)),
                       maxSplitBits,
                       splitCount,
                       splitByteSize);
@@ -317,7 +319,7 @@ SplitOperationTest::testOperationBlockedByPendingJoin()
     std::vector<document::BucketId> joinSources = {
         document::BucketId(3, 1), document::BucketId(3, 5)
     };
-    auto joinCmd = std::make_shared<api::JoinBucketsCommand>(joinTarget);
+    auto joinCmd = std::make_shared<api::JoinBucketsCommand>(makeDocumentBucket(joinTarget));
     joinCmd->getSourceBuckets() = joinSources;
     joinCmd->setAddress(
             api::StorageMessageAddress("storage", lib::NodeType::STORAGE, 0));
@@ -327,7 +329,7 @@ SplitOperationTest::testOperationBlockedByPendingJoin()
     insertBucketInfo(joinTarget, 0, 0xabc, 1000, 1234, 250);
 
     SplitOperation op("storage",
-                      BucketAndNodes(joinTarget, toVector<uint16_t>(0)),
+                      BucketAndNodes(makeDocumentBucket(joinTarget), toVector<uint16_t>(0)),
                       maxSplitBits,
                       splitCount,
                       splitByteSize);

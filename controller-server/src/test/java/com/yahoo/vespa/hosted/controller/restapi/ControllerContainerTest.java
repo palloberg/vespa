@@ -36,21 +36,17 @@ public class ControllerContainerTest {
             "    <system>main</system>" +
             "  </config>" +
             "  <component id='com.yahoo.vespa.hosted.controller.persistence.MockCuratorDb'/>" +
-            "  <component id='com.yahoo.vespa.hosted.controller.api.integration.athens.mock.AthensMock'/>" +
+            "  <component id='com.yahoo.vespa.hosted.controller.athenz.mock.AthenzClientFactoryMock'/>" +
             "  <component id='com.yahoo.vespa.hosted.controller.api.integration.chef.ChefMock'/>" +
             "  <component id='com.yahoo.vespa.hosted.controller.api.integration.dns.MemoryNameService'/>" +
             "  <component id='com.yahoo.vespa.hosted.controller.api.integration.entity.MemoryEntityService'/>" +
             "  <component id='com.yahoo.vespa.hosted.controller.api.integration.github.GitHubMock'/>" +
-            "  <component id='com.yahoo.vespa.hosted.controller.api.integration.jira.JiraMock'/>" +
             "  <component id='com.yahoo.vespa.hosted.controller.api.integration.routing.MemoryGlobalRoutingService'/>" +
-            "  <component id='com.yahoo.vespa.hosted.controller.api.integration.stubs.ContactsMock'/>" +
-            "  <component id='com.yahoo.vespa.hosted.controller.api.integration.stubs.LoggingIssues'/>" +
-            "  <component id='com.yahoo.vespa.hosted.controller.api.integration.stubs.PropertiesMock'/>" +
+            "  <component id='com.yahoo.vespa.hosted.controller.api.integration.stubs.LoggingDeploymentIssues'/>" +
+            "  <component id='com.yahoo.vespa.hosted.controller.api.integration.organization.MockOrganization'/>" +
             "  <component id='com.yahoo.vespa.hosted.controller.ConfigServerClientMock'/>" +
             "  <component id='com.yahoo.vespa.hosted.controller.ZoneRegistryMock'/>" +
             "  <component id='com.yahoo.vespa.hosted.controller.Controller'/>" +
-            "  <component id='com.yahoo.vespa.hosted.controller.cost.MockInsightBackend'/>" +
-            "  <component id='com.yahoo.vespa.hosted.controller.cost.CostMock'/>" +
             "  <component id='com.yahoo.vespa.hosted.controller.integration.MockMetricsService'/>" +
             "  <component id='com.yahoo.vespa.hosted.controller.maintenance.ControllerMaintenance'/>" +
             "  <component id='com.yahoo.vespa.hosted.controller.maintenance.JobControl'/>" +

@@ -6,19 +6,18 @@ import com.yahoo.config.application.api.DeployLogger;
 import com.yahoo.config.provision.HostFilter;
 import com.yahoo.config.provision.Provisioner;
 import com.yahoo.log.LogLevel;
-import com.yahoo.path.Path;
 import com.yahoo.transaction.NestedTransaction;
 import com.yahoo.transaction.Transaction;
 import com.yahoo.vespa.config.server.ActivationConflictException;
-import com.yahoo.vespa.config.server.tenant.ActivateLock;
 import com.yahoo.vespa.config.server.ApplicationRepository;
 import com.yahoo.vespa.config.server.TimeoutBudget;
 import com.yahoo.vespa.config.server.http.InternalServerException;
 import com.yahoo.vespa.config.server.session.LocalSession;
-import com.yahoo.vespa.config.server.session.LocalSessionRepo;
 import com.yahoo.vespa.config.server.session.PrepareParams;
 import com.yahoo.vespa.config.server.session.Session;
 import com.yahoo.vespa.config.server.session.SilentDeployLogger;
+import com.yahoo.vespa.config.server.tenant.ActivateLock;
+import com.yahoo.vespa.config.server.tenant.Tenant;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -39,11 +38,9 @@ public class Deployment implements com.yahoo.config.provision.Deployment {
 
     /** The session containing the application instance to activate */
     private final LocalSession session;
-    private final LocalSessionRepo localSessionRepo;
-    /** The path to the tenant, or null if not available (only used during prepare) */
-    private final Path tenantPath;
+    private final ApplicationRepository applicationRepository;
     private final Optional<Provisioner> hostProvisioner;
-    private final ActivateLock activateLock;
+    private final Tenant tenant;
     private final Duration timeout;
     private final Clock clock;
     private final DeployLogger logger = new SilentDeployLogger();
@@ -59,14 +56,13 @@ public class Deployment implements com.yahoo.config.provision.Deployment {
     private boolean ignoreLockFailure = false;
     private boolean ignoreSessionStaleFailure = false;
 
-    private Deployment(LocalSession session, LocalSessionRepo localSessionRepo, Path tenantPath,
-                       Optional<Provisioner> hostProvisioner, ActivateLock activateLock,
+    private Deployment(LocalSession session, ApplicationRepository applicationRepository,
+                       Optional<Provisioner> hostProvisioner, Tenant tenant,
                        Duration timeout, Clock clock, boolean prepared, boolean validate, Version version) {
         this.session = session;
-        this.localSessionRepo = localSessionRepo;
-        this.tenantPath = tenantPath;
+        this.applicationRepository = applicationRepository;
         this.hostProvisioner = hostProvisioner;
-        this.activateLock = activateLock;
+        this.tenant = tenant;
         this.timeout = timeout;
         this.clock = clock;
         this.prepared = prepared;
@@ -74,17 +70,17 @@ public class Deployment implements com.yahoo.config.provision.Deployment {
         this.version = version;
     }
 
-    public static Deployment unprepared(LocalSession session, LocalSessionRepo localSessionRepo, Path tenantPath,
-                                        Optional<Provisioner> hostProvisioner, ActivateLock activateLock,
+    public static Deployment unprepared(LocalSession session, ApplicationRepository applicationRepository,
+                                        Optional<Provisioner> hostProvisioner, Tenant tenant,
                                         Duration timeout, Clock clock, boolean validate, Version version) {
-        return new Deployment(session, localSessionRepo, tenantPath, hostProvisioner, activateLock,
+        return new Deployment(session, applicationRepository, hostProvisioner, tenant,
                               timeout, clock, false, validate, version);
     }
 
-    public static Deployment prepared(LocalSession session, LocalSessionRepo localSessionRepo,
-                                      Optional<Provisioner> hostProvisioner, ActivateLock activateLock,
+    public static Deployment prepared(LocalSession session, ApplicationRepository applicationRepository,
+                                      Optional<Provisioner> hostProvisioner, Tenant tenant,
                                       Duration timeout, Clock clock) {
-        return new Deployment(session, localSessionRepo, null, hostProvisioner, activateLock,
+        return new Deployment(session, applicationRepository, hostProvisioner, tenant,
                               timeout, clock, true, true, session.getVespaVersion());
     }
 
@@ -111,7 +107,7 @@ public class Deployment implements com.yahoo.config.provision.Deployment {
                                                    .vespaVersion(version.toString())
                                                    .build(),
                         Optional.empty(),
-                        tenantPath,
+                        tenant.getPath(),
                         clock.instant());
         this.prepared = true;
     }
@@ -125,6 +121,7 @@ public class Deployment implements com.yahoo.config.provision.Deployment {
         TimeoutBudget timeoutBudget = new TimeoutBudget(clock, timeout);
         long sessionId = session.getSessionId();
         validateSessionStatus(session);
+        ActivateLock activateLock = tenant.getActivateLock();
         try {
             log.log(LogLevel.DEBUG, "Trying to acquire lock " + activateLock + " for session " + sessionId);
             boolean acquired = activateLock.acquire(timeoutBudget, ignoreLockFailure);
@@ -134,7 +131,7 @@ public class Deployment implements com.yahoo.config.provision.Deployment {
 
             log.log(LogLevel.DEBUG, "Lock acquired " + activateLock + " for session " + sessionId);
             NestedTransaction transaction = new NestedTransaction();
-            transaction.add(deactivateCurrentActivateNew(localSessionRepo.getActiveSession(session.getApplicationId()), session, ignoreSessionStaleFailure));
+            transaction.add(deactivateCurrentActivateNew(applicationRepository.getActiveSession(session.getApplicationId()), session, ignoreSessionStaleFailure));
 
             if (hostProvisioner.isPresent()) {
                 hostProvisioner.get().activate(transaction, session.getApplicationId(), session.getAllocatedHosts().getHosts());

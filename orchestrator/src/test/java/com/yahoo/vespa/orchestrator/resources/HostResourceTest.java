@@ -4,8 +4,15 @@ package com.yahoo.vespa.orchestrator.resources;
 import com.yahoo.vespa.applicationmodel.ApplicationInstance;
 import com.yahoo.vespa.applicationmodel.ApplicationInstanceId;
 import com.yahoo.vespa.applicationmodel.ApplicationInstanceReference;
+import com.yahoo.vespa.applicationmodel.ClusterId;
+import com.yahoo.vespa.applicationmodel.ConfigId;
 import com.yahoo.vespa.applicationmodel.HostName;
+import com.yahoo.vespa.applicationmodel.ServiceCluster;
+import com.yahoo.vespa.applicationmodel.ServiceInstance;
+import com.yahoo.vespa.applicationmodel.ServiceStatus;
+import com.yahoo.vespa.applicationmodel.ServiceType;
 import com.yahoo.vespa.applicationmodel.TenantId;
+import com.yahoo.vespa.orchestrator.Host;
 import com.yahoo.vespa.orchestrator.InstanceLookupService;
 import com.yahoo.vespa.orchestrator.OrchestrationException;
 import com.yahoo.vespa.orchestrator.Orchestrator;
@@ -16,6 +23,7 @@ import com.yahoo.vespa.orchestrator.policy.HostStateChangeDeniedException;
 import com.yahoo.vespa.orchestrator.policy.Policy;
 import com.yahoo.vespa.orchestrator.restapi.wire.BatchHostSuspendRequest;
 import com.yahoo.vespa.orchestrator.restapi.wire.BatchOperationResult;
+import com.yahoo.vespa.orchestrator.restapi.wire.GetHostResponse;
 import com.yahoo.vespa.orchestrator.restapi.wire.PatchHostRequest;
 import com.yahoo.vespa.orchestrator.restapi.wire.PatchHostResponse;
 import com.yahoo.vespa.orchestrator.restapi.wire.UpdateHostResponse;
@@ -23,12 +31,14 @@ import com.yahoo.vespa.orchestrator.status.ApplicationInstanceStatus;
 import com.yahoo.vespa.orchestrator.status.HostStatus;
 import com.yahoo.vespa.orchestrator.status.MutableStatusRegistry;
 import com.yahoo.vespa.orchestrator.status.StatusService;
-import com.yahoo.vespa.service.monitor.ServiceMonitorStatus;
 import org.junit.Test;
 
 import javax.ws.rs.BadRequestException;
 import javax.ws.rs.InternalServerErrorException;
 import javax.ws.rs.WebApplicationException;
+import javax.ws.rs.core.UriBuilder;
+import javax.ws.rs.core.UriInfo;
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Optional;
@@ -38,6 +48,7 @@ import static com.yahoo.vespa.orchestrator.TestUtil.makeServiceClusterSet;
 import static org.fest.assertions.Assertions.assertThat;
 import static org.fest.assertions.Fail.fail;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -70,7 +81,7 @@ public class HostResourceTest {
     static {
         when(mockInstanceLookupService.findInstanceByHost(any()))
                 .thenReturn(Optional.of(
-                        new ApplicationInstance<>(
+                        new ApplicationInstance(
                                 TENANT_ID,
                                 APPLICATION_INSTANCE_ID,
                                 makeServiceClusterSet())));
@@ -79,13 +90,13 @@ public class HostResourceTest {
 
     private static final InstanceLookupService alwaysEmptyInstanceLookUpService = new InstanceLookupService() {
         @Override
-        public Optional<ApplicationInstance<ServiceMonitorStatus>> findInstanceById(
+        public Optional<ApplicationInstance> findInstanceById(
                 final ApplicationInstanceReference applicationInstanceReference) {
             return Optional.empty();
         }
 
         @Override
-        public Optional<ApplicationInstance<ServiceMonitorStatus>> findInstanceByHost(final HostName hostName) {
+        public Optional<ApplicationInstance> findInstanceByHost(final HostName hostName) {
             return Optional.empty();
         }
 
@@ -98,7 +109,7 @@ public class HostResourceTest {
     private static class AlwaysAllowPolicy implements Policy {
         @Override
         public void grantSuspensionRequest(
-                ApplicationInstance<ServiceMonitorStatus> applicationInstance,
+                ApplicationInstance applicationInstance,
                 HostName hostName,
                 MutableStatusRegistry hostStatusService) throws HostStateChangeDeniedException {
 
@@ -118,7 +129,7 @@ public class HostResourceTest {
 
         @Override
         public void releaseSuspensionGrant(
-                ApplicationInstance<ServiceMonitorStatus> applicationInstance,
+                ApplicationInstance applicationInstance,
                 HostName hostName,
                 MutableStatusRegistry hostStatusRegistry) {
         }
@@ -138,10 +149,12 @@ public class HostResourceTest {
             SERVICE_MONITOR_CONVERGENCE_LATENCY_SECONDS
     );
 
+    private final UriInfo uriInfo = mock(UriInfo.class);
+
     @Test
     public void returns_200_on_success() throws Exception {
         HostResource hostResource =
-                new HostResource(alwaysAllowOrchestrator);
+                new HostResource(alwaysAllowOrchestrator, uriInfo);
 
         final String hostName = "hostname";
 
@@ -172,7 +185,7 @@ public class HostResourceTest {
     public void throws_404_when_host_unknown() throws Exception {
         try {
             HostResource hostResource =
-                    new HostResource(hostNotFoundOrchestrator);
+                    new HostResource(hostNotFoundOrchestrator, uriInfo);
             hostResource.suspend("hostname");
             fail();
         } catch (WebApplicationException w) {
@@ -199,7 +212,7 @@ public class HostResourceTest {
     private static class AlwaysFailPolicy implements Policy {
         @Override
         public void grantSuspensionRequest(
-                ApplicationInstance<ServiceMonitorStatus> applicationInstance,
+                ApplicationInstance applicationInstance,
                 HostName hostName,
                 MutableStatusRegistry hostStatusRegistry) throws HostStateChangeDeniedException {
             doThrow();
@@ -222,7 +235,7 @@ public class HostResourceTest {
 
         @Override
         public void releaseSuspensionGrant(
-                ApplicationInstance<ServiceMonitorStatus> applicationInstance,
+                ApplicationInstance applicationInstance,
                 HostName hostName,
                 MutableStatusRegistry hostStatusRegistry) throws HostStateChangeDeniedException {
             doThrow();
@@ -245,7 +258,7 @@ public class HostResourceTest {
                 SERVICE_MONITOR_CONVERGENCE_LATENCY_SECONDS);
 
         try {
-            HostResource hostResource = new HostResource(alwaysRejectResolver);
+            HostResource hostResource = new HostResource(alwaysRejectResolver, uriInfo);
             hostResource.suspend("hostname");
             fail();
         } catch (WebApplicationException w) {
@@ -276,7 +289,7 @@ public class HostResourceTest {
     @Test(expected = BadRequestException.class)
     public void patch_state_may_throw_bad_request() {
         Orchestrator orchestrator = mock(Orchestrator.class);
-        HostResource hostResource = new HostResource(orchestrator);
+        HostResource hostResource = new HostResource(orchestrator, uriInfo);
 
         String hostNameString = "hostname";
         PatchHostRequest request = new PatchHostRequest();
@@ -288,7 +301,7 @@ public class HostResourceTest {
     @Test
     public void patch_works() throws OrchestrationException {
         Orchestrator orchestrator = mock(Orchestrator.class);
-        HostResource hostResource = new HostResource(orchestrator);
+        HostResource hostResource = new HostResource(orchestrator, uriInfo);
 
         String hostNameString = "hostname";
         PatchHostRequest request = new PatchHostRequest();
@@ -302,7 +315,7 @@ public class HostResourceTest {
     @Test(expected = InternalServerErrorException.class)
     public void patch_handles_exception_in_orchestrator() throws OrchestrationException {
         Orchestrator orchestrator = mock(Orchestrator.class);
-        HostResource hostResource = new HostResource(orchestrator);
+        HostResource hostResource = new HostResource(orchestrator, uriInfo);
 
         String hostNameString = "hostname";
         PatchHostRequest request = new PatchHostRequest();
@@ -310,5 +323,52 @@ public class HostResourceTest {
 
         doThrow(new OrchestrationException("error")).when(orchestrator).setNodeStatus(new HostName(hostNameString), HostStatus.NO_REMARKS);
         hostResource.patch(hostNameString, request);
+    }
+
+    @Test
+    public void getHost_works() throws Exception {
+        Orchestrator orchestrator = mock(Orchestrator.class);
+        HostResource hostResource = new HostResource(orchestrator, uriInfo);
+
+        HostName hostName = new HostName("hostname");
+
+        UriBuilder baseUriBuilder = mock(UriBuilder.class);
+        when(uriInfo.getBaseUriBuilder()).thenReturn(baseUriBuilder);
+        when(baseUriBuilder.path(any(String.class))).thenReturn(baseUriBuilder);
+        when(baseUriBuilder.path(any(Class.class))).thenReturn(baseUriBuilder);
+        URI uri = new URI("https://foo.com/bar");
+        when(baseUriBuilder.build()).thenReturn(uri);
+
+        ServiceInstance serviceInstance = new ServiceInstance(
+                new ConfigId("configId"),
+                hostName,
+                ServiceStatus.UP);
+        ServiceCluster serviceCluster = new ServiceCluster(
+                new ClusterId("clusterId"),
+                new ServiceType("serviceType"),
+                Collections.singleton(serviceInstance));
+        serviceInstance.setServiceCluster(serviceCluster);
+
+        Host host = new Host(
+                hostName,
+                HostStatus.ALLOWED_TO_BE_DOWN,
+                new ApplicationInstanceReference(
+                        new TenantId("tenantId"),
+                        new ApplicationInstanceId("applicationId")),
+                Collections.singletonList(serviceInstance));
+        when(orchestrator.getHost(hostName)).thenReturn(host);
+        GetHostResponse response = hostResource.getHost(hostName.s());
+        assertEquals("hostname", response.hostname());
+        assertEquals("ALLOWED_TO_BE_DOWN", response.state());
+
+        // See TODO in HostResource:
+        // assertEquals("https://foo.com/bar", response.applicationUrl());
+        // assertEquals(1, response.services().size());
+        // assertEquals("clusterId", response.services().get(0).clusterId);
+        // assertEquals("configId", response.services().get(0).configId);
+        // assertEquals("UP", response.services().get(0).serviceStatus);
+        // assertEquals("serviceType", response.services().get(0).serviceType);
+        assertNull(response.applicationUrl());
+        assertNull(response.services());
     }
 }

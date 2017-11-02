@@ -108,16 +108,6 @@ TEST("require that if resolves to the appropriate type") {
     TEST_DO(verify("if(double,any,double)", "any"));
 }
 
-TEST("require that let expressions propagate type correctly") {
-    TEST_DO(verify("let(a,10,a)", "double"));
-    TEST_DO(verify("let(a,double,a)", "double"));
-    TEST_DO(verify("let(a,any,a)", "any"));
-    TEST_DO(verify("let(a,error,a)", "error"));
-    TEST_DO(verify("let(a,tensor,let(b,double,a))", "tensor"));
-    TEST_DO(verify("let(a,tensor,let(b,double,b))", "double"));
-    TEST_DO(verify("let(a,tensor,let(b,a,b))", "tensor"));
-}
-
 TEST("require that set membership resolves to double unless error") {
     TEST_DO(verify("1 in [1,2,3]", "double"));
     TEST_DO(verify("1 in [tensor,tensor,tensor]", "double"));
@@ -127,23 +117,6 @@ TEST("require that set membership resolves to double unless error") {
     TEST_DO(verify("any in [1,tensor,any]", "double"));
     TEST_DO(verify("error in [1,tensor,any]", "error"));
     TEST_DO(verify("any in [tensor,error,any]", "error"));
-}
-
-TEST("require that sum resolves correct type") {
-    TEST_DO(verify("sum(error)", "error"));
-    TEST_DO(verify("sum(tensor)", "double"));
-    TEST_DO(verify("sum(double)", "double"));
-    TEST_DO(verify("sum(any)", "any"));
-}
-
-TEST("require that dimension sum resolves correct type") {
-    TEST_DO(verify("sum(error,x)", "error"));
-    TEST_DO(verify("sum(tensor,x)", "any"));
-    TEST_DO(verify("sum(any,x)", "any"));
-    TEST_DO(verify("sum(double,x)", "error"));
-    TEST_DO(verify("sum(tensor(x{},y{},z{}),y)", "tensor(x{},z{})"));
-    TEST_DO(verify("sum(tensor(x{},y{},z{}),w)", "error"));
-    TEST_DO(verify("sum(tensor(x{}),x)", "double"));
 }
 
 TEST("require that reduce resolves correct type") {
@@ -291,7 +264,7 @@ TEST("require that tensor concat resolves correct type") {
 
 TEST("require that double only expressions can be detected") {
     Function plain_fun = Function::parse("1+2");
-    Function complex_fun = Function::parse("sum(a)");
+    Function complex_fun = Function::parse("reduce(a,sum)");
     NodeTypes plain_types(plain_fun, {});
     NodeTypes complex_types(complex_fun, {ValueType::tensor_type({})});
     EXPECT_TRUE(plain_types.get_type(plain_fun.root()).is_double());

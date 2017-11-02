@@ -20,6 +20,7 @@ import java.io.File;
 import java.time.Duration;
 import java.time.Instant;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
@@ -44,9 +45,9 @@ public class LocalSessionRepoTest extends TestWithCurator {
         GlobalComponentRegistry globalComponentRegistry = new TestComponentRegistry.Builder().curator(curator).build();
         TenantFileSystemDirs tenantFileSystemDirs = TenantFileSystemDirs.createTestDirs(tenantName);
         if (createInitialSessions) {
-            IOUtils.copyDirectory(testApp, new File(tenantFileSystemDirs.path(), "1"));
-            IOUtils.copyDirectory(testApp, new File(tenantFileSystemDirs.path(), "2"));
-            IOUtils.copyDirectory(testApp, new File(tenantFileSystemDirs.path(), "3"));
+            IOUtils.copyDirectory(testApp, new File(tenantFileSystemDirs.sessionsPath(), "1"));
+            IOUtils.copyDirectory(testApp, new File(tenantFileSystemDirs.sessionsPath(), "2"));
+            IOUtils.copyDirectory(testApp, new File(tenantFileSystemDirs.sessionsPath(), "3"));
         }
         clock = new ManualClock(Instant.ofEpochSecond(1));
         LocalSessionLoader loader = new SessionFactoryImpl(globalComponentRegistry,
@@ -57,7 +58,7 @@ public class LocalSessionRepoTest extends TestWithCurator {
                 new MemoryTenantApplications(),
                 tenantFileSystemDirs, new HostRegistry<>(),
                 tenantName);
-        repo = new LocalSessionRepo(tenantFileSystemDirs, loader, new MemoryTenantApplications(), clock, 5);
+        repo = new LocalSessionRepo(tenantFileSystemDirs, loader, clock, 5);
     }
 
     @Test

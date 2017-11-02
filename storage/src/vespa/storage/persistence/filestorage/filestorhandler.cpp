@@ -77,14 +77,14 @@ FileStorHandler::getNextMessage(uint16_t thread,
 }
 
 FileStorHandler::BucketLockInterface::SP
-FileStorHandler::lock(const document::BucketId& bucket, uint16_t disk)
+FileStorHandler::lock(const document::Bucket& bucket, uint16_t disk)
 {
     return _impl->lock(bucket, disk);
 }
 
 void
 FileStorHandler::remapQueueAfterDiskMove(
-        const document::BucketId& bucket,
+        const document::Bucket& bucket,
         uint16_t sourceDisk, uint16_t targetDisk)
 {
     RemapInfo target(bucket, targetDisk);
@@ -111,10 +111,10 @@ FileStorHandler::remapQueueAfterSplit(
 }
 
 void
-FileStorHandler::failOperations(const document::BucketId& bid,
+FileStorHandler::failOperations(const document::Bucket &bucket,
                                 uint16_t fromDisk, const api::ReturnCode& err)
 {
-    _impl->failOperations(bid, fromDisk, err);
+    _impl->failOperations(bucket, fromDisk, err);
 }
 
 void
@@ -149,20 +149,20 @@ FileStorHandler::getQueueSize(uint16_t disk) const
 }
 
 void
-FileStorHandler::addMergeStatus(const document::BucketId& bucket,
+FileStorHandler::addMergeStatus(const document::Bucket& bucket,
                                 MergeStatus::SP ms)
 {
     return _impl->addMergeStatus(bucket, ms);
 }
 
 MergeStatus&
-FileStorHandler::editMergeStatus(const document::BucketId& bucket)
+FileStorHandler::editMergeStatus(const document::Bucket& bucket)
 {
     return _impl->editMergeStatus(bucket);
 }
 
 bool
-FileStorHandler::isMerging(const document::BucketId& bucket) const
+FileStorHandler::isMerging(const document::Bucket& bucket) const
 {
     return _impl->isMerging(bucket);
 }
@@ -174,14 +174,14 @@ FileStorHandler::getNumActiveMerges() const
 }
 
 void
-FileStorHandler::clearMergeStatus(const document::BucketId& bucket,
+FileStorHandler::clearMergeStatus(const document::Bucket& bucket,
                                   const api::ReturnCode& code)
 {
     return _impl->clearMergeStatus(bucket, &code);
 }
 
 void
-FileStorHandler::clearMergeStatus(const document::BucketId& bucket)
+FileStorHandler::clearMergeStatus(const document::Bucket& bucket)
 {
     return _impl->clearMergeStatus(bucket, 0);
 }

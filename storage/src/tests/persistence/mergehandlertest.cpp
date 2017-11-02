@@ -6,18 +6,21 @@
 #include <tests/persistence/persistencetestutils.h>
 #include <tests/persistence/common/persistenceproviderwrapper.h>
 #include <tests/distributor/messagesenderstub.h>
+#include <vespa/document/test/make_document_bucket.h>
 #include <vespa/vespalib/objects/nbostream.h>
 #include <cmath>
 
 #include <vespa/log/log.h>
 LOG_SETUP(".test.persistence.handler.merge");
 
+using document::test::makeDocumentBucket;
+
 namespace storage {
 
 struct MergeHandlerTest : public SingleDiskPersistenceTestUtils
 {
     uint32_t _location; // Location used for all merge tests
-    document::BucketId _bucket; // Bucket used for all merge tests
+    document::Bucket _bucket; // Bucket used for all merge tests
     uint64_t _maxTimestamp;
     std::vector<api::MergeBucketCommand::Node> _nodes;
     std::unique_ptr<spi::Context> _context;
@@ -232,13 +235,13 @@ MergeHandlerTest::setUp() {
     SingleDiskPersistenceTestUtils::setUp();
 
     _location = 1234;
-    _bucket = document::BucketId(16, _location);
+    _bucket = makeDocumentBucket(document::BucketId(16, _location));
     _maxTimestamp = 11501;
 
     LOG(info, "Creating %s in bucket database", _bucket.toString().c_str());
     bucketdb::StorageBucketInfo bucketDBEntry;
     bucketDBEntry.disk = 0;
-    getEnv().getBucketDatabase().insert(_bucket, bucketDBEntry, "mergetestsetup");
+    getEnv().getBucketDatabase(_bucket.getBucketSpace()).insert(_bucket.getBucketId(), bucketDBEntry, "mergetestsetup");
 
     LOG(info, "Creating bucket to merge");
     createTestBucket(_bucket);
@@ -895,7 +898,7 @@ MergeHandlerTest::testBucketNotFoundInDb()
 {
     MergeHandler handler(getPersistenceProvider(), getEnv());
     // Send merge for unknown bucket
-    api::MergeBucketCommand cmd(document::BucketId(16, 6789), _nodes, _maxTimestamp);
+    api::MergeBucketCommand cmd(makeDocumentBucket(document::BucketId(16, 6789)), _nodes, _maxTimestamp);
     MessageTracker::UP tracker = handler.handleMergeBucket(cmd, *_context);
     CPPUNIT_ASSERT(tracker->getResult().isBucketDisappearance());
 }

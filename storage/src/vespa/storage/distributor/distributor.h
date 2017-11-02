@@ -23,6 +23,7 @@
 #include <vespa/config/config.h>
 #include <vespa/vespalib/util/sync.h>
 #include <unordered_map>
+#include <queue>
 
 namespace storage {
 
@@ -89,7 +90,7 @@ public:
 
     void storageDistributionChanged() override;
 
-    void recheckBucketInfo(uint16_t nodeIdx, const document::BucketId& bid) override;
+    void recheckBucketInfo(uint16_t nodeIdx, const document::Bucket &bucket) override;
 
     bool handleReply(const std::shared_ptr<api::StorageReply>& reply) override;
 
@@ -186,11 +187,12 @@ private:
     };
 
     void setNodeStateUp();
-
     bool handleMessage(const std::shared_ptr<api::StorageMessage>& msg);
     bool isMaintenanceReply(const api::StorageReply& reply) const;
 
     void handleStatusRequests();
+    void send_shutdown_abort_reply(const std::shared_ptr<api::StorageMessage>&);
+    void handle_or_propagate_message(const std::shared_ptr<api::StorageMessage>& msg);
     void startExternalOperations();
 
     /**
@@ -252,8 +254,20 @@ private:
     mutable std::shared_ptr<lib::Distribution> _distribution;
     std::shared_ptr<lib::Distribution> _nextDistribution;
 
-    typedef std::vector<std::shared_ptr<api::StorageMessage> > MessageQueue;
+    using MessageQueue = std::vector<std::shared_ptr<api::StorageMessage>>;
+    struct IndirectHigherPriority {
+        template <typename Lhs, typename Rhs>
+        bool operator()(const Lhs& lhs, const Rhs& rhs) const noexcept {
+            return lhs->getPriority() > rhs->getPriority();
+        }
+    };
+    using ClientRequestPriorityQueue = std::priority_queue<
+            std::shared_ptr<api::StorageMessage>,
+            std::vector<std::shared_ptr<api::StorageMessage>>,
+            IndirectHigherPriority
+    >;
     MessageQueue _messageQueue;
+    ClientRequestPriorityQueue _client_request_priority_queue;
     MessageQueue _fetchedMessages;
     framework::TickingThreadPool& _threadPool;
     vespalib::Monitor _statusMonitor;

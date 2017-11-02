@@ -14,6 +14,7 @@
 LOG_SETUP(".bucketintegritychecker");
 
 using std::shared_ptr;
+using document::BucketSpace;
 
 namespace storage {
 
@@ -566,7 +567,7 @@ BucketIntegrityChecker::run(framework::ThreadHandle& thread)
                 LOG(info, "Starting new verification/repair cycle at time %s.",
                            currentTime.toString().c_str());
                 _lastCycleStart = currentTime;
-                _cycleStartBucketCount = _component.getBucketDatabase().size();
+                _cycleStartBucketCount = _component.getBucketDatabase(BucketSpace::placeHolder()).size();
                 _lastCycleCompleted = false;
                 _currentRunWithFullVerification
                         = (state == SchedulingOptions::RUN_FULL);
@@ -577,7 +578,7 @@ BucketIntegrityChecker::run(framework::ThreadHandle& thread)
                             < _scheduleOptions._maxPendingCount)
                 {
                     document::BucketId bid(_status[i].iterate(
-                            _component.getBucketDatabase()));
+                            _component.getBucketDatabase(BucketSpace::placeHolder())));
                     if (bid == document::BucketId(0, 0)) {
                         LOG(debug, "Completed repair cycle for disk %u.", i);
                         // If there is no next bucket, we might have completed
@@ -595,9 +596,9 @@ BucketIntegrityChecker::run(framework::ThreadHandle& thread)
                         }
                         break;
                     }
-
+                    document::Bucket bucket(BucketSpace::placeHolder(), bid);
                     std::shared_ptr<RepairBucketCommand> cmd(
-                            new RepairBucketCommand(bid, _status[i].disk));
+                            new RepairBucketCommand(bucket, _status[i].disk));
                     cmd->verifyBody(_currentRunWithFullVerification);
                     cmd->moveToIdealDisk(true);
                     cmd->setPriority(230);

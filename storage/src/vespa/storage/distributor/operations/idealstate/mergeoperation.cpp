@@ -138,7 +138,7 @@ MergeOperation::onStart(DistributorMessageSender& sender)
 
     if (_mnodes.size() > 1) {
         auto msg = std::make_shared<api::MergeBucketCommand>(
-                getBucketId(),
+                getBucket(),
                 _mnodes,
                 _manager->getDistributorComponent().getUniqueTimestamp(),
                 clusterState.getVersion());
@@ -228,7 +228,7 @@ MergeOperation::deleteSourceOnlyNodes(
         _removeOperation.reset(
                 new RemoveBucketOperation(
                         _manager->getDistributorComponent().getClusterName(),
-                        BucketAndNodes(getBucketId(), sourceOnlyNodes)));
+                        BucketAndNodes(getBucket(), sourceOnlyNodes)));
         // Must not send removes to source only copies if something has caused
         // pending load to the copy after the merge was sent!
         if (_removeOperation->isBlocked(sender.getPendingMessageTracker())) {

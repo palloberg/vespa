@@ -109,7 +109,7 @@ public:
     void print(std::ostream& out, bool verbose, const std::string& indent) const override;
 
     // Return true if we are currently merging the given bucket.
-    bool isMerging(const document::BucketId& bucket) const;
+    bool isMerging(const document::Bucket& bucket) const;
 
     FileStorHandler& getFileStorHandler() {
         return *_filestorHandler;
@@ -127,22 +127,22 @@ public:
 private:
     void configure(std::unique_ptr<vespa::config::content::StorFilestorConfig> config) override;
 
-    void replyWithBucketNotFound(api::StorageMessage&, const document::BucketId&);
+    void replyWithBucketNotFound(api::StorageMessage&, const document::Bucket&);
 
     void replyDroppedOperation(api::StorageMessage& msg,
-                               const document::BucketId& bucket,
+                               const document::Bucket& bucket,
                                api::ReturnCode::Result returnCode,
                                vespalib::stringref reason);
 
     StorBucketDatabase::WrappedEntry ensureConsistentBucket(
-            const document::BucketId& bucket,
+            const document::Bucket& bucket,
             api::StorageMessage& msg,
             const char* callerId);
 
     bool validateApplyDiffCommandBucket(api::StorageMessage& msg, const StorBucketDatabase::WrappedEntry&);
-    bool validateDiffReplyBucket(const StorBucketDatabase::WrappedEntry&, const document::BucketId&);
+    bool validateDiffReplyBucket(const StorBucketDatabase::WrappedEntry&, const document::Bucket&);
 
-    StorBucketDatabase::WrappedEntry mapOperationToDisk(api::StorageMessage&, const document::BucketId&);
+    StorBucketDatabase::WrappedEntry mapOperationToDisk(api::StorageMessage&, const document::Bucket&);
     StorBucketDatabase::WrappedEntry mapOperationToBucketAndDisk(api::BucketCommand&, const document::DocumentId*);
     bool handlePersistenceMessage(const std::shared_ptr<api::StorageMessage>&, uint16_t disk);
 

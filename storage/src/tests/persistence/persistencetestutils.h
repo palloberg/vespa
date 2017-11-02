@@ -154,7 +154,7 @@ public:
             const document::DocumentId& id,
             const document::FieldValue& updateValue);
 
-    uint16_t getDiskFromBucketDatabaseIfUnset(const document::BucketId&,
+    uint16_t getDiskFromBucketDatabaseIfUnset(const document::Bucket &,
                                               uint16_t disk = 0xffff);
 
     /**
@@ -188,7 +188,7 @@ public:
      *
      * @disk If set, use this disk, otherwise lookup in bucket db.
      */
-    void createTestBucket(const document::BucketId&, uint16_t disk = 0xffff);
+    void createTestBucket(const document::Bucket&, uint16_t disk = 0xffff);
 
     /**
      * Create a new persistence thread.

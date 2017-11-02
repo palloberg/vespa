@@ -8,6 +8,8 @@
 #include <vespa/log/log.h>
 LOG_SETUP(".persistence.filestor.modifiedbucketchecker");
 
+using document::BucketSpace;
+
 namespace storage {
 
 ModifiedBucketChecker::ModifiedBucketChecker(
@@ -120,7 +122,7 @@ ModifiedBucketChecker::onInternalReply(
 bool
 ModifiedBucketChecker::requestModifiedBucketsFromProvider()
 {
-    spi::BucketIdListResult result(_provider.getModifiedBuckets());
+    spi::BucketIdListResult result(_provider.getModifiedBuckets(document::BucketSpace::placeHolder()));
     if (result.hasError()) {
         LOG(debug, "getModifiedBuckets() failed: %s",
             result.toString().c_str());
@@ -146,8 +148,8 @@ ModifiedBucketChecker::nextRecheckChunk(
     size_t n = std::min(_maxPendingChunkSize, _rechecksNotStarted.size());
 
     for (size_t i = 0; i < n; ++i) {
-        document::BucketId bid(_rechecksNotStarted.back());
-        commandsToSend.emplace_back(new RecheckBucketInfoCommand(bid));
+        document::Bucket bucket(BucketSpace::placeHolder(), _rechecksNotStarted.back());
+        commandsToSend.emplace_back(new RecheckBucketInfoCommand(bucket));
         _rechecksNotStarted.pop_back();
     }
     _pendingRequests = n;

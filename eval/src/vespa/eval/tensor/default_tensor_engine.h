@@ -27,14 +27,11 @@ public:
     virtual eval::TensorFunction::UP compile(eval::tensor_function::Node_UP expr) const override;
 
     std::unique_ptr<Tensor> create(const TensorSpec &spec) const override;
-    const Value &reduce(const Tensor &tensor, const BinaryOperation &op, const std::vector<vespalib::string> &dimensions, Stash &stash) const override;
-    const Value &map(const UnaryOperation &op, const Tensor &a, Stash &stash) const override;
-    const Value &apply(const BinaryOperation &op, const Tensor &a, const Tensor &b, Stash &stash) const override;
 
     void encode(const Value &value, nbostream &output, Stash &stash) const override;
     const Value &decode(nbostream &input, Stash &stash) const override;
-    const Value &map(const Value &a, const std::function<double(double)> &function, Stash &stash) const override;
-    const Value &join(const Value &a, const Value &b, const std::function<double(double,double)> &function, Stash &stash) const override;
+    const Value &map(const Value &a, map_fun_t function, Stash &stash) const override;
+    const Value &join(const Value &a, const Value &b, join_fun_t function, Stash &stash) const override;
     const Value &reduce(const Value &a, Aggr aggr, const std::vector<vespalib::string> &dimensions, Stash &stash) const override;
     const Value &concat(const Value &a, const Value &b, const vespalib::string &dimension, Stash &stash) const override;
     const Value &rename(const Value &a, const std::vector<vespalib::string> &from, const std::vector<vespalib::string> &to, Stash &stash) const override;

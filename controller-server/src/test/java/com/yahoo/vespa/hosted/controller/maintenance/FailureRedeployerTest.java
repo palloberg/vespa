@@ -6,14 +6,11 @@ import com.yahoo.config.provision.Environment;
 import com.yahoo.config.provision.SystemName;
 import com.yahoo.slime.Slime;
 import com.yahoo.vespa.config.SlimeUtils;
-import com.yahoo.vespa.curator.Lock;
 import com.yahoo.vespa.hosted.controller.Application;
 import com.yahoo.vespa.hosted.controller.application.ApplicationPackage;
 import com.yahoo.vespa.hosted.controller.application.DeploymentJobs;
 import com.yahoo.vespa.hosted.controller.deployment.ApplicationPackageBuilder;
 import com.yahoo.vespa.hosted.controller.deployment.DeploymentTester;
-import com.yahoo.vespa.hosted.controller.persistence.ApplicationSerializer;
-import com.yahoo.vespa.hosted.controller.versions.VespaVersion;
 import org.junit.Test;
 
 import java.nio.file.Files;
@@ -116,81 +113,16 @@ public class FailureRedeployerTest {
         tester.failureRedeployer().maintain();
         assertTrue("No jobs retried", tester.buildSystem().jobs().isEmpty());
 
-        // Just over 12 hours pass, deployment is retried from beginning
+        // Just over 12 hours pass, job is retried
         tester.clock().advance(Duration.ofHours(12).plus(Duration.ofSeconds(1)));
         tester.failureRedeployer().maintain();
-        assertEquals(DeploymentJobs.JobType.component.id(), tester.buildSystem().takeJobsToRun().get(0).jobName());
+        assertEquals(DeploymentJobs.JobType.stagingTest.id(), tester.buildSystem().takeJobsToRun().get(0).jobName());
 
-        // Ensure that system-test is triggered after component. Triggering component records a new change, but in this
-        // case there's already a change in progress which we want to discard and start over
-        tester.notifyJobCompletion(DeploymentJobs.JobType.component, app, true);
-        assertEquals(DeploymentJobs.JobType.systemTest.id(), tester.buildSystem().jobs().get(0).jobName());
-    }
-
-    @Test
-    public void testAlwaysRestartsDeploymentOfApplicationsWithStuckJobs() {
-        DeploymentTester tester = new DeploymentTester();
-        Version version = Version.fromString("5.0");
-        tester.updateVersionStatus(version);
-
-        ApplicationPackage applicationPackage = new ApplicationPackageBuilder()
-                .environment(Environment.prod)
-                .region("us-west-1")
-                .build();
-
-        // Setup applications
-        Application canary0 = tester.createAndDeploy("canary0", 0, "canary");
-        Application canary1 = tester.createAndDeploy("canary1", 1, "canary");
-        Application default0 = tester.createAndDeploy("default0", 2, "default");
-        Application default1 = tester.createAndDeploy("default1", 3, "default");
-        Application default2 = tester.createAndDeploy("default2", 4, "default");
-        Application default3 = tester.createAndDeploy("default3", 5, "default");
-        Application default4 = tester.createAndDeploy("default4", 6, "default");
-
-        // New version is released
-        version = Version.fromString("5.1");
-        tester.updateVersionStatus(version);
-        assertEquals(version, tester.controller().versionStatus().systemVersion().get().versionNumber());
-        tester.upgrader().maintain();
-
-        // Canaries upgrade and raise confidence
-        tester.completeUpgrade(canary0, version, "canary");
-        tester.completeUpgrade(canary1, version, "canary");
-        tester.updateVersionStatus(version);
-        assertEquals(VespaVersion.Confidence.normal, tester.controller().versionStatus().systemVersion().get().confidence());
-
-        // Applications with default policy start upgrading
-        tester.clock().advance(Duration.ofMinutes(1));
-        tester.upgrader().maintain();
-        assertEquals("Upgrade scheduled for remaining apps", 5, tester.buildSystem().jobs().size());
-
-        // 4/5 applications fail, confidence is lowered and upgrade is cancelled
-        tester.completeUpgradeWithError(default0, version, "default", DeploymentJobs.JobType.systemTest);
-        tester.completeUpgradeWithError(default1, version, "default", DeploymentJobs.JobType.systemTest);
-        tester.completeUpgradeWithError(default2, version, "default", DeploymentJobs.JobType.systemTest);
-        tester.completeUpgradeWithError(default3, version, "default", DeploymentJobs.JobType.systemTest);
-        tester.updateVersionStatus(version);
-        assertEquals(VespaVersion.Confidence.broken, tester.controller().versionStatus().systemVersion().get().confidence());
-        tester.upgrader().maintain();
-
-        // 5th app never reports back and has a dead locked job, but no ongoing change
-        Application deadLocked = tester.applications().require(default4.id());
-        assertTrue("Jobs in progress", deadLocked.deploymentJobs().inProgress());
-        assertFalse("No change present", deadLocked.deploying().isPresent());
-
-        // 4/5 applications are repaired and confidence is restored
-        tester.deployCompletely(default0, applicationPackage);
-        tester.deployCompletely(default1, applicationPackage);
-        tester.deployCompletely(default2, applicationPackage);
-        tester.deployCompletely(default3, applicationPackage);
-        tester.updateVersionStatus(version);
-        assertEquals(VespaVersion.Confidence.normal, tester.controller().versionStatus().systemVersion().get().confidence());
-
-        // Over 12 hours pass and failure redeployer restarts deployment of 5th app
-        tester.clock().advance(Duration.ofHours(12).plus(Duration.ofSeconds(1)));
-        tester.failureRedeployer().maintain();
-        assertEquals("Deployment is restarted", DeploymentJobs.JobType.component.id(),
-                     tester.buildSystem().jobs().get(0).jobName());
+        // Deployment completes
+        tester.deploy(DeploymentJobs.JobType.stagingTest, app, applicationPackage, true);
+        tester.notifyJobCompletion(DeploymentJobs.JobType.stagingTest, app, true);
+        tester.deployAndNotify(app, applicationPackage, true, DeploymentJobs.JobType.productionUsEast3);
+        assertTrue("All jobs consumed", tester.buildSystem().jobs().isEmpty());
     }
 
     @Test
@@ -247,18 +179,14 @@ public class FailureRedeployerTest {
 
         // Current system version, matches version in test data
         Version version = Version.fromString("6.141.117");
-        tester.configServer().setDefaultConfigServerVersion(version);
+        tester.configServer().setDefaultVersion(version);
         tester.updateVersionStatus(version);
         assertEquals(version, tester.controller().versionStatus().systemVersion().get().versionNumber());
 
         // Load test data data
-        ApplicationSerializer serializer = new ApplicationSerializer();
         byte[] json = Files.readAllBytes(Paths.get("src/test/java/com/yahoo/vespa/hosted/controller/maintenance/testdata/canary-with-stale-data.json"));
         Slime slime = SlimeUtils.jsonToSlime(json);
-        Application application = serializer.fromSlime(slime);
-        try (Lock lock = tester.controller().applications().lock(application.id())) {
-            tester.controller().applications().store(application, lock);
-        }
+        Application application = tester.controllerTester().createApplication(slime);
         ApplicationPackage applicationPackage = new ApplicationPackageBuilder()
                 .upgradePolicy("canary")
                 .region("cd-us-central-1")
@@ -266,7 +194,7 @@ public class FailureRedeployerTest {
 
         // New version is released
         version = Version.fromString("6.142.1");
-        tester.configServer().setDefaultConfigServerVersion(version);
+        tester.configServer().setDefaultVersion(version);
         tester.updateVersionStatus(version);
         assertEquals(version, tester.controller().versionStatus().systemVersion().get().versionNumber());
         tester.upgrader().maintain();
@@ -303,19 +231,14 @@ public class FailureRedeployerTest {
 
         // Current system version, matches version in test data
         Version version = Version.fromString("6.42.1");
-        tester.configServer().setDefaultConfigServerVersion(version);
+        tester.configServer().setDefaultVersion(version);
         tester.updateVersionStatus(version);
         assertEquals(version, tester.controller().versionStatus().systemVersion().get().versionNumber());
 
         // Load test data data
-        ApplicationSerializer serializer = new ApplicationSerializer();
         byte[] json = Files.readAllBytes(Paths.get("src/test/java/com/yahoo/vespa/hosted/controller/maintenance/testdata/pr-instance-with-dead-locked-job.json"));
         Slime slime = SlimeUtils.jsonToSlime(json);
-        Application application = serializer.fromSlime(slime);
-
-        try (Lock lock = tester.controller().applications().lock(application.id())) {
-            tester.controller().applications().store(application, lock);
-        }
+        Application application = tester.controllerTester().createApplication(slime);
 
         // Failure redeployer does not restart deployment
         tester.failureRedeployer().maintain();
@@ -328,19 +251,14 @@ public class FailureRedeployerTest {
 
         // Current system version, matches version in test data
         Version version = Version.fromString("6.42.1");
-        tester.configServer().setDefaultConfigServerVersion(version);
+        tester.configServer().setDefaultVersion(version);
         tester.updateVersionStatus(version);
         assertEquals(version, tester.controller().versionStatus().systemVersion().get().versionNumber());
 
         // Load test data data
-        ApplicationSerializer serializer = new ApplicationSerializer();
         byte[] json = Files.readAllBytes(Paths.get("src/test/java/com/yahoo/vespa/hosted/controller/maintenance/testdata/application-without-project-id.json"));
         Slime slime = SlimeUtils.jsonToSlime(json);
-        Application application = serializer.fromSlime(slime);
-
-        try (Lock lock = tester.controller().applications().lock(application.id())) {
-            tester.controller().applications().store(application, lock);
-        }
+        tester.controllerTester().createApplication(slime);
 
         // Failure redeployer does not restart deployment
         tester.failureRedeployer().maintain();

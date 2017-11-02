@@ -3,7 +3,7 @@
 #include "changedbucketownershiphandler.h"
 #include <vespa/storageapi/message/state.h>
 #include <vespa/storage/bucketdb/storbucketdb.h>
-#include <vespa/storage/common/messagebucketid.h>
+#include <vespa/storage/common/messagebucket.h>
 #include <vespa/storage/common/nodestateupdater.h>
 #include <vespa/vespalib/util/exceptions.h>
 
@@ -155,15 +155,15 @@ class StateDiffLazyAbortPredicate
     // where all distributors are down.
     bool _allDistributorsHaveGoneDown;
 
-    bool doShouldAbort(const document::BucketId& b) const override {
+    bool doShouldAbort(const document::Bucket &bucket) const override {
         if (_allDistributorsHaveGoneDown) {
             return true;
         }
-        uint16_t oldOwner(_oldState.ownerOf(b));
-        uint16_t newOwner(_newState.ownerOf(b));
+        uint16_t oldOwner(_oldState.ownerOf(bucket.getBucketId()));
+        uint16_t newOwner(_newState.ownerOf(bucket.getBucketId()));
         if (oldOwner != newOwner) {
             LOG(spam, "Owner of %s was %u, now %u. Operation should be aborted",
-                b.toString().c_str(), oldOwner, newOwner);
+                bucket.toString().c_str(), oldOwner, newOwner);
             return true;
         }
         return false;
@@ -323,8 +323,8 @@ ChangedBucketOwnershipHandler::sendingDistributorOwnsBucketInCurrentState(
     }
 
     try {
-        document::BucketId opBucket(getStorageMessageBucketId(cmd));
-        return (current->ownerOf(opBucket) == cmd.getSourceIndex());
+        document::Bucket opBucket(getStorageMessageBucket(cmd));
+        return (current->ownerOf(opBucket.getBucketId()) == cmd.getSourceIndex());
     } catch (vespalib::IllegalArgumentException& e) {
         LOG(error,
             "Precondition violation: unable to get bucket from "

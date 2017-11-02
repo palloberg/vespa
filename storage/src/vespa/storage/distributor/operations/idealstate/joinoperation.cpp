@@ -74,7 +74,7 @@ JoinOperation::enqueueJoinMessagePerTargetNode(
     }
     for (const auto& node : nodeToBuckets) {
         std::shared_ptr<api::JoinBucketsCommand> msg(
-                new api::JoinBucketsCommand(getBucketId()));
+                new api::JoinBucketsCommand(getBucket()));
         msg->getSourceBuckets() = node.second;
         msg->setTimeout(INT_MAX);
         setCommandMeta(*msg);
@@ -118,7 +118,7 @@ JoinOperation::onReceive(DistributorMessageSender&, const api::StorageReply::SP&
     } else if (rep.getResult().getResult() == api::ReturnCode::BUCKET_NOT_FOUND
             && _manager->getDistributorComponent().getBucketDatabase().get(getBucketId())->getNode(node) != 0)
     {
-        _manager->getDistributorComponent().recheckBucketInfo(node, getBucketId());
+        _manager->getDistributorComponent().recheckBucketInfo(node, getBucket());
         LOGBP(warning, "Join failed to find %s: %s",
               getBucketId().toString().c_str(),
               rep.getResult().toString().c_str());
@@ -142,11 +142,17 @@ JoinOperation::onReceive(DistributorMessageSender&, const api::StorageReply::SP&
     }
 }
 
+document::Bucket
+JoinOperation::getJoinBucket(size_t idx) const
+{
+    return document::Bucket(getBucket().getBucketSpace(), _bucketsToJoin[idx]);
+}
+
 bool
 JoinOperation::isBlocked(const PendingMessageTracker& tracker) const
 {
-    return (checkBlock(getBucketId(), tracker) ||
-            checkBlock(_bucketsToJoin[0], tracker) ||
-            (_bucketsToJoin.size() > 1 && checkBlock(_bucketsToJoin[1], tracker)));
+    return (checkBlock(getBucket(), tracker) ||
+            checkBlock(getJoinBucket(0), tracker) ||
+            (_bucketsToJoin.size() > 1 && checkBlock(getJoinBucket(1), tracker)));
 }
 

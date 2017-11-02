@@ -72,6 +72,16 @@ public class ApplicationList {
         return listOf(list.stream().filter(application -> ! application.deploymentJobs().hasFailures()));
     }
 
+    /** Returns the subset of applications which have been failing an upgrade to the given version since the given instant */
+    public ApplicationList failingUpgradeToVersionSince(Version version, Instant threshold) {
+        return listOf(list.stream().filter(application -> failingUpgradeToVersionSince(application, version, threshold)));
+    }
+
+    /** Returns the subset of applications which have been failing an application change since the given instant */
+    public ApplicationList failingApplicationChangeSince(Instant threshold) {
+        return listOf(list.stream().filter(application -> failingApplicationChangeSince(application, threshold)));
+    }
+
     /** Returns the subset of applications which currently does not have any failing jobs on the given version */
     public ApplicationList notFailingOn(Version version) {
         return listOf(list.stream().filter(application -> ! failingOn(version, application)));
@@ -79,7 +89,7 @@ public class ApplicationList {
 
     /** Returns the subset of applications which have at least one deployment */
     public ApplicationList hasDeployment() {
-        return listOf(list.stream().filter(a -> !a.deployments().isEmpty()));
+        return listOf(list.stream().filter(a -> !a.productionDeployments().isEmpty()));
     }
 
     /** Returns the subset of applications which started failing after the given instant */
@@ -100,7 +110,8 @@ public class ApplicationList {
     /** Returns the subset of applications which have at least one deployment on a lower version than the given one */
     public ApplicationList onLowerVersionThan(Version version) {
         return listOf(list.stream()
-                          .filter(a -> a.deployments().values().stream().anyMatch(d -> d.version().isBefore(version))));
+                          .filter(a -> a.productionDeployments().values().stream()
+                                                                         .anyMatch(d -> d.version().isBefore(version))));
     }
 
     /**
@@ -111,9 +122,20 @@ public class ApplicationList {
         return listOf(list.stream().filter(a -> ! a.id().instance().value().startsWith("default-pr")));
     }
 
+    /** Returns the subset of applications which have at least one production deployment */
+    public ApplicationList hasProductionDeployment() {
+        return listOf(list.stream().filter(a -> ! a.productionDeployments().isEmpty()));
+    }
+
     /** Returns the subset of applications that are allowed to upgrade at the given time */
     public ApplicationList canUpgradeAt(Instant instant) {
         return listOf(list.stream().filter(a -> a.deploymentSpec().canUpgradeAt(instant)));
+    }
+
+    /** Returns the first n application in this (or all, if there are less than n). */
+    public ApplicationList first(int n) {
+        if (list.size() < n) return this;
+        return new ApplicationList(list.subList(0, n));
     }
 
      // ----------------------------------- Sorting
@@ -127,9 +149,9 @@ public class ApplicationList {
         return listOf(list.stream().sorted(Comparator.comparing(application -> application.deployedVersion().orElse(Version.emptyVersion))));
     }
 
-    /** Returns the subset of applications which currently do not have any job in progress for the given change */
-    public ApplicationList notRunningJobFor(Change.VersionChange change) {
-        return listOf(list.stream().filter(a -> !hasRunningJob(a, change)));
+    /** Returns the subset of applications that are not currently upgrading */
+    public ApplicationList notCurrentlyUpgrading(Change.VersionChange change, Instant jobTimeoutLimit) {
+        return listOf(list.stream().filter(a -> !currentlyUpgrading(change, a, jobTimeoutLimit)));
     }
 
     // ----------------------------------- Internal helpers
@@ -157,14 +179,44 @@ public class ApplicationList {
         return false;
     }
 
-    private static boolean hasRunningJob(Application application, Change.VersionChange change) {
+    private static boolean currentlyUpgrading(Change.VersionChange change, Application application, Instant jobTimeoutLimit) {
         return application.deploymentJobs().jobStatus().values().stream()
-                .filter(JobStatus::inProgress)
-                .filter(jobStatus -> jobStatus.lastTriggered().isPresent())
-                .map(jobStatus -> jobStatus.lastTriggered().get())
+                .filter(status -> status.isRunning(jobTimeoutLimit))
+                .filter(status -> status.lastTriggered().isPresent())
+                .map(status -> status.lastTriggered().get())
                 .anyMatch(jobRun -> jobRun.version().equals(change.version()));
     }
-    
+
+    private static boolean failingUpgradeToVersionSince(Application application, Version version, Instant threshold) {
+        return application.deploymentJobs().jobStatus().values().stream()
+                .filter(job -> isUpgradeFailure(job))
+                .filter(job -> job.firstFailing().get().at().isBefore(threshold))
+                .anyMatch(job -> job.lastCompleted().get().version().equals(version));
+    }
+
+    private static boolean failingApplicationChangeSince(Application application, Instant threshold) {
+        return application.deploymentJobs().jobStatus().values().stream()
+                .filter(job -> isApplicationChangeFailure(job))
+                .anyMatch(job -> job.firstFailing().get().at().isBefore(threshold));
+    }
+
+    private static boolean isUpgradeFailure(JobStatus job) {
+        if (   job.isSuccess()) return false;
+        if ( ! job.lastSuccess().isPresent()) return false; // An application which never succeeded is surely bad.
+        if ( ! job.lastSuccess().get().revision().isPresent()) return false; // Indicates the component job, which is not an upgrade.
+        if ( ! job.firstFailing().get().revision().equals(job.lastSuccess().get().revision())) return false; // Application change may be to blame.
+        return ! job.firstFailing().get().version().equals(job.lastSuccess().get().version()); // Return whether there is a version change.
+    }
+
+    private static boolean isApplicationChangeFailure(JobStatus job) {
+        if (   job.isSuccess()) return false;
+        if ( ! job.lastSuccess().isPresent()) return true; // An application which never succeeded is surely bad.
+        if ( ! job.lastSuccess().get().revision().isPresent()) return true; // Indicates the component job, which is always an application change.
+        if ( ! job.firstFailing().get().version().equals(job.lastSuccess().get().version())) return false; // Version change may be to blame.
+        return ! job.firstFailing().get().revision().equals(job.lastSuccess().get().revision()); // Return whether there is an application change.
+    }
+
+
     /** Convenience converter from a stream to an ApplicationList */
     private static ApplicationList listOf(Stream<Application> applications) {
         ImmutableList.Builder<Application> b = new ImmutableList.Builder<>();

@@ -26,11 +26,13 @@ struct Tensor : public eval::Tensor
 {
     typedef std::unique_ptr<Tensor> UP;
     typedef std::reference_wrapper<const Tensor> CREF;
+    using join_fun_t = double (*)(double, double);
 
     Tensor();
     virtual ~Tensor() {}
     virtual const eval::ValueType &getType() const = 0;
     virtual double sum() const = 0;
+    virtual double as_double() const final override { return sum(); }
     virtual Tensor::UP add(const Tensor &arg) const = 0;
     virtual Tensor::UP subtract(const Tensor &arg) const = 0;
     virtual Tensor::UP multiply(const Tensor &arg) const = 0;
@@ -39,9 +41,9 @@ struct Tensor : public eval::Tensor
     virtual Tensor::UP match(const Tensor &arg) const = 0;
     virtual Tensor::UP apply(const CellFunction &func) const = 0;
     virtual Tensor::UP sum(const vespalib::string &dimension) const = 0;
-    virtual Tensor::UP apply(const eval::BinaryOperation &op,
-                             const Tensor &arg) const = 0;
-    virtual Tensor::UP reduce(const eval::BinaryOperation &op,
+    virtual Tensor::UP join(join_fun_t function,
+                            const Tensor &arg) const = 0;
+    virtual Tensor::UP reduce(join_fun_t op,
                               const std::vector<vespalib::string> &dimensions)
         const = 0;
     virtual bool equals(const Tensor &arg) const = 0;

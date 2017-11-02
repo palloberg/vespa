@@ -2,7 +2,6 @@
 
 #include "document_subdb_initializer.h"
 #include "idocumentsubdb.h"
-#include <future>
 #include <vespa/vespalib/util/lambdatask.h>
 #include <vespa/searchcorespi/index/i_thread_service.h>
 
@@ -30,10 +29,10 @@ addDocumentMetaStoreInitTask(InitTask::SP documentMetaStoreInitTask)
 void
 DocumentSubDbInitializer::run()
 {
-    std::promise<bool> promise;
-    std::future<bool> future = promise.get_future();
-    _master.execute(makeLambdaTask([&]() { _subDB.setup(_result); promise.set_value(true); }));
-    (void) future.get();
+    std::promise<void> promise;
+    auto future = promise.get_future();
+    _master.execute(makeLambdaTask([&]() { _subDB.setup(_result); promise.set_value(); }));
+    future.wait();
 }
 
 } // namespace proton
